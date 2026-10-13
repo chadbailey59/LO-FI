@@ -1010,6 +1010,10 @@ if (( INTERACTIVE )); then
   echo "     LOFI_TTS_ENGINE=${CHOSEN_TTS_ENGINE}"
   echo "     ${TTS_VOICE_VAR}=${CHOSEN_VOICE}"
   echo
+  echo "  observer architecture (the default: fast front + thinking records analyst) knobs:"
+  echo "     LOFI_ARCHITECTURE=observer               # already the default"
+  echo "     LOFI_RAG_LLM_MODEL=qwen3:8b              # the analyst; nemotron-3-nano:4b on smaller machines"
+  echo
   if (( ! APPROVED )); then
     read -r -p "combo was rejected — continue anyway? [y/N] " ans || ans=""
     [[ "$ans" =~ ^[Yy] ]] || { echo "configure: no changes made"; exit 1; }

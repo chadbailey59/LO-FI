@@ -105,7 +105,8 @@ def test_status_exits_zero_with_nothing_running(tmp_path):
 def test_status_lists_the_conversation_model(tmp_path):
     result = run_lofi("status", tmp_path, f"127.0.0.1:{closed_port()}")
     assert result.returncode == 0
-    assert re.search(r"^\s+LLM\s+qwen2\.5:14b", result.stdout, re.M), result.stdout
+    assert re.search(r"^\s+LLM\s+qwen2\.5:7b", result.stdout, re.M), result.stdout
+    assert re.search(r"^\s+ANALYST\s+qwen3:8b", result.stdout, re.M), result.stdout
     assert "bot      not running" in result.stdout
 
 

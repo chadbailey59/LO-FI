@@ -35,7 +35,8 @@ from bot import _configure_logging, _preflight_llm, _preflight_rag, _preflight_s
 from pipeline import build_pipeline
 from scripts.print_models import model_entries
 
-load_dotenv(override=True)
+# Shell env wins over .env (matches config.py and lofi.sh).
+load_dotenv()
 
 CONFIG_MESSAGE_TYPE = "lofi-config"
 
@@ -79,6 +80,8 @@ def _lofi_config_message() -> dict:
         "ollama_host": config.ollama_base_url(),
         "ollama_started_by_lofi": (Path(config.state_dir()) / "ollama.pid").is_file(),
         "architecture": config.architecture(),
+        "llm_engine": config.llm_engine(),
+        "hosted_host": config.hosted_base_url() if config.llm_engine() == "hosted" else None,
         "rag": store.stats_summary(Path(config.rag_db_path()), config.rag_data_dir()),
     }
 
@@ -197,7 +200,7 @@ async def bot(runner_args: RunnerArguments) -> None:
 
 if __name__ == "__main__":
     _configure_logging()
-    _preflight_llm(config.llm_model(), config.ollama_base_url())
+    _preflight_llm(config.ollama_base_url())
     _preflight_stt()
     _preflight_rag()
 

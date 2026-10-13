@@ -11,9 +11,11 @@
       <div id="controls">
         <button id="connect">Connect</button>
         <button id="mute" disabled>Mute</button>
+        <button id="mode-toggle" hidden title="analyst mode">&#x1F9E0; accurate</button>
         <span id="connection-state">disconnected</span>
       </div>
     </header>
+    <div id="hosted-banner" hidden></div>
     <div id="webtransport-banner" hidden>
       This browser can't open a WebTransport connection, which lofi needs to
       stream audio. Use a recent Chrome or Edge.
@@ -36,7 +38,7 @@
           <pre id="config-lines">connect to see the running config</pre>
         </section>
         <section id="rag-panel" aria-label="retrieved context">
-          <h2>retrieved context</h2>
+          <h2>retrieved context <span id="rag-stopwatch"></span></h2>
           <div id="rag-turns">ask about your records — retrieved context shows up here</div>
         </section>
       </aside>

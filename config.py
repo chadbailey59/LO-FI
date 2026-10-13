@@ -39,6 +39,14 @@ DEFAULT_MODEL_DIR = "./models"
 # Load ./.env FIRST — before resolving LOFI_MODEL_DIR or setdefault-ing any
 # cache var — so user overrides win over these defaults. Mirrors
 # scripts/model_dir.sh (bash) and scripts/prefetch_models.py.
+
+# API keys are honored from the SHELL environment only — snapshot them before
+# .env loads so a key pasted into .env is detectably refused.
+_SHELL_KEY_SNAPSHOT = {
+    name: os.getenv(name, "").strip()
+    for name in ("LOFI_HOSTED_API_KEY", "OPENAI_API_KEY")
+}
+
 try:
     from dotenv import load_dotenv
 
@@ -165,8 +173,11 @@ DEFAULT_WHISPER_MODEL = "LARGE_V3_TURBO"
 DEFAULT_FASTER_WHISPER_MODEL = "DISTIL_MEDIUM_EN"
 DEFAULT_MOONSHINE_MODEL = "SMALL_STREAMING"
 DEFAULT_PIPER_VOICE = "en_US-lessac-medium"
-DEFAULT_LLM_MODEL = "qwen2.5:14b"
-DEFAULT_ARCHITECTURE = "cascade"
+# The workshop-locked pair (swept 2026-10-13, evals/sweep.sh): obedient
+# non-thinking front + thinking analyst, observer architecture.
+DEFAULT_LLM_MODEL = "qwen2.5:7b"
+DEFAULT_RAG_LLM_MODEL = "qwen3:8b"
+DEFAULT_ARCHITECTURE = "observer"
 DEFAULT_OLLAMA_BASE_URL = "http://localhost:11434/v1"
 DEFAULT_EMBED_MODEL = "nomic-embed-text"
 DEFAULT_RAG_DATA_DIR = "data"
@@ -295,12 +306,50 @@ def ollama_models_dir() -> str:
 
 
 def llm_model() -> str:
-    """Ollama model tag for the conversation LLM (default ``llama3.2:1b``).
+    """Ollama model tag for the conversation LLM (default ``qwen2.5:7b``).
 
     The same string ``scripts/run_ollama.sh`` uses to ``ollama pull``, so the
     bot and the pull agree on which model is served.
     """
     return _get("LOFI_LLM_MODEL", DEFAULT_LLM_MODEL)
+
+
+def llm_engine() -> str:
+    """Conversation-LLM engine (LOFI_LLM_ENGINE, default ``ollama``).
+
+    ``ollama``: the local server — the 100% offline path.
+    ``hosted``: any OpenAI-compatible endpoint (OpenAI, Anthropic's compat
+    layer, Groq, OpenRouter) at LOFI_HOSTED_BASE_URL. Front model only; the
+    records analyst always runs on local Ollama.
+    """
+    value = _get("LOFI_LLM_ENGINE", "ollama").strip().lower()
+    if value not in ("ollama", "hosted"):
+        raise SystemExit(
+            f"\n✖ Unknown LOFI_LLM_ENGINE '{value}' — valid: ollama (default), hosted\n"
+        )
+    return value
+
+
+def hosted_base_url() -> str:
+    """OpenAI-compatible endpoint for the hosted engine (LOFI_HOSTED_BASE_URL,
+    default ``https://api.openai.com/v1``)."""
+    return _get("LOFI_HOSTED_BASE_URL", "https://api.openai.com/v1")
+
+
+def hosted_api_key() -> str:
+    """API key for the hosted engine: LOFI_HOSTED_API_KEY, falling back to
+    OPENAI_API_KEY. Shell environment only — a key pasted into .env is refused
+    (see hosted_key_in_dotenv_only)."""
+    return (
+        _SHELL_KEY_SNAPSHOT["LOFI_HOSTED_API_KEY"] or _SHELL_KEY_SNAPSHOT["OPENAI_API_KEY"]
+    )
+
+
+def hosted_key_in_dotenv_only() -> bool:
+    """True when a hosted API key is visible in the environment but was NOT in
+    the shell before .env loaded — i.e. someone put a key in .env."""
+    from_env = _get("LOFI_HOSTED_API_KEY", "").strip() or _get("OPENAI_API_KEY", "").strip()
+    return bool(from_env) and not hosted_api_key()
 
 
 def ollama_base_url() -> str:
@@ -349,16 +398,27 @@ def rag_index_dir() -> str:
 
 
 def rag_llm_model() -> str:
-    """Ollama tag for the records analyst (LOFI_RAG_LLM_MODEL).
+    """Ollama tag for the records analyst (LOFI_RAG_LLM_MODEL, default
+    ``qwen3:8b`` — the measured best analyst; see evals/sweep.sh).
 
-    Defaults to llm_model() — same weights, different request config. Set it to
-    mix models, e.g. an obedient small front with a thinking analyst.
+    Set it to mix differently, e.g. LOFI_RAG_LLM_MODEL=nemotron-3-nano:4b on
+    smaller machines, or the front model's own tag for one set of weights.
     """
-    return _get("LOFI_RAG_LLM_MODEL", "").strip() or llm_model()
+    return _get("LOFI_RAG_LLM_MODEL", DEFAULT_RAG_LLM_MODEL)
+
+
+def rag_fast_llm_model() -> str:
+    """Ollama tag for the analyst's fast mode (LOFI_RAG_FAST_LLM_MODEL).
+
+    Defaults to rag_llm_model() — same weights, thinking off, zero extra RAM.
+    A distinct fast model needs OLLAMA_MAX_LOADED_MODELS=4 (front + analyst +
+    fast analyst + embedder all resident).
+    """
+    return _get("LOFI_RAG_FAST_LLM_MODEL", "").strip() or rag_llm_model()
 
 
 def architecture() -> str:
-    """Bot architecture (LOFI_ARCHITECTURE, default ``cascade``).
+    """Bot architecture (LOFI_ARCHITECTURE, default ``observer``).
 
     ``cascade``: one model holds the four retrieval tools directly.
     ``split``: the pipeline model (reasoning off) holds one delegate tool;
@@ -371,7 +431,7 @@ def architecture() -> str:
     value = _get("LOFI_ARCHITECTURE", DEFAULT_ARCHITECTURE).strip().lower()
     if value not in ("cascade", "split", "observer"):
         raise SystemExit(
-            f"\n✖ Unknown LOFI_ARCHITECTURE '{value}' — valid: cascade (default), split, observer\n"
+            f"\n✖ Unknown LOFI_ARCHITECTURE '{value}' — valid: observer (default), cascade, split\n"
         )
     return value
 

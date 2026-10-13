@@ -105,12 +105,68 @@ def _configure_logging() -> None:
     logger.add(sys.stderr, level=config.log_level())
 
 
-def _preflight_llm(model: str, base_url: str) -> None:
-    """Fail fast with a clear message if the local LLM isn't usable.
+def _preflight_hosted_llm() -> None:
+    """Fail fast when the hosted engine has no key or an unreachable endpoint."""
+    if not config.hosted_api_key():
+        if config.hosted_key_in_dotenv_only():
+            sys.exit(
+                "\n✖ Found an API key in .env — keys never go in .env (it gets backed up and shared)\n"
+                "  Remove it from .env and export it in your shell instead:\n"
+                "    export LOFI_HOSTED_API_KEY=sk-...\n"
+            )
+        sys.exit(
+            "\n✖ LOFI_LLM_ENGINE=hosted needs an API key in the shell environment\n"
+            "  Set LOFI_HOSTED_API_KEY (or OPENAI_API_KEY) — keys never go in .env\n"
+        )
+    base_url = config.hosted_base_url()
+    request = urllib.request.Request(
+        base_url.rstrip("/") + "/models",
+        headers={"Authorization": f"Bearer {config.hosted_api_key()}"},
+    )
+
+    # Never follow redirects with the key attached.
+    class _NoRedirect(urllib.request.HTTPRedirectHandler):
+        def redirect_request(self, *args, **kwargs):
+            return None
+
+    opener = urllib.request.build_opener(_NoRedirect)
+    try:
+        with opener.open(request, timeout=10) as resp:  # noqa: S310
+            json.load(resp)
+    except (urllib.error.URLError, OSError, ValueError) as exc:
+        sys.exit(
+            f"\n✖ Cannot reach the hosted LLM endpoint at {base_url}\n"
+            f"  Check LOFI_HOSTED_BASE_URL and your API key.\n"
+            f"  Details: {exc}\n"
+        )
+    logger.info(f"LLM preflight OK: hosted endpoint reachable at {base_url}")
+
+
+def _ollama_models_to_check() -> list[str]:
+    """Models that must be pulled in the local Ollama: the front model when
+    the engine is local, plus analyst (and fast analyst) when the architecture
+    runs one — the analyst is always local, hosted front or not."""
+    models: list[str] = []
+    if config.llm_engine() == "ollama":
+        models.append(config.llm_model())
+    if config.architecture() in ("split", "observer"):
+        for model in (config.rag_llm_model(), config.rag_fast_llm_model()):
+            if model not in models:
+                models.append(model)
+    return models
+
+
+def _preflight_llm(base_url: str) -> None:
+    """Fail fast with a clear message if the LLM isn't usable.
 
     A missing Ollama server or un-pulled model otherwise fails silently mid-turn
     (the LLM call errors and nothing is spoken), which is confusing.
     """
+    if config.llm_engine() == "hosted":
+        _preflight_hosted_llm()
+    to_check = _ollama_models_to_check()
+    if not to_check:
+        return
     url = base_url.rstrip("/") + "/models"
     try:
         with urllib.request.urlopen(url, timeout=5) as resp:  # noqa: S310 (localhost)
@@ -123,15 +179,17 @@ def _preflight_llm(model: str, base_url: str) -> None:
         )
 
     available = {str(m.get("id", "")) for m in models}
-    # Ollama reports tags like 'llama3:latest'; match the bare name too.
-    if not any(model == m or model.split(":")[0] == m.split(":")[0] for m in available):
-        listed = ", ".join(sorted(available)) or "(none)"
-        sys.exit(
-            f"\n✖ LLM model '{model}' is not available in Ollama at {base_url}\n"
-            f"  Pull it:            ollama pull {model}\n"
-            f"  Or set LOFI_LLM_MODEL in .env to one you have: {listed}\n"
-        )
-    logger.info(f"LLM preflight OK: '{model}' available at {base_url}")
+    for wanted in to_check:
+        # Ollama reports tags like 'llama3:latest'; match the bare name too.
+        if not any(wanted == m or wanted.split(":")[0] == m.split(":")[0] for m in available):
+            listed = ", ".join(sorted(available)) or "(none)"
+            sys.exit(
+                f"\n✖ LLM model '{wanted}' is not available in Ollama at {base_url}\n"
+                f"  Pull it:            ollama pull {wanted}\n"
+                f"  Or point LOFI_LLM_MODEL / LOFI_RAG_LLM_MODEL / LOFI_RAG_FAST_LLM_MODEL\n"
+                f"  at one you have: {listed}\n"
+            )
+    logger.info(f"LLM preflight OK: {', '.join(to_check)} available at {base_url}")
 
 
 def _preflight_stt() -> None:
@@ -168,12 +226,13 @@ async def main() -> None:
         secrets), assembles the pipeline, and hands the worker to a `WorkerRunner`,
         which manages the asyncio lifecycle and SIGINT/SIGTERM shutdown.
     """
-    load_dotenv(override=True)
+    # Shell env wins over .env (matches config.py and lofi.sh).
+    load_dotenv()
     _configure_logging()
 
     # Fail fast (with guidance) if the local LLM server/model isn't ready, rather
     # than silently producing no spoken reply when the first turn hits the LLM.
-    _preflight_llm(config.llm_model(), config.ollama_base_url())
+    _preflight_llm(config.ollama_base_url())
     _preflight_stt()
     _preflight_rag()
 

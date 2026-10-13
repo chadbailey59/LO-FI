@@ -117,13 +117,17 @@ async def answer_question(
     today: datetime.date | None = None,
     think: bool = True,
     system_prompt: str | None = None,
+    history: list[dict] | None = None,
 ) -> AgentResult:
     model = model or config.rag_llm_model()
     api_url = api_url or config.ollama_api_url()
     url = f"{api_url.rstrip('/')}/api/chat"
 
+    # History rides between system and question; grounding stays in the final
+    # user message so the system prompt stays byte-stable for the KV cache.
     messages = [
         {"role": "system", "content": system_prompt or records_analyst.SYSTEM_PROMPT},
+        *(history or []),
         {"role": "user", "content": grounded_question(question, db_path, today)},
     ]
     traces: list[dict] = []
@@ -163,6 +167,22 @@ async def answer_question(
                 payload = response.json()
             except TimeoutError:
                 error = "records lookup ran out of time"
+            except httpx.HTTPStatusError as exc:
+                # Non-thinking models 400 on think=true — drop thinking and retry.
+                if think and exc.response.status_code == 400 and "think" in exc.response.text.lower():
+                    think = False
+                    remaining = deadline_secs - (time.perf_counter() - started)
+                    try:
+                        response = await asyncio.wait_for(
+                            http.post(url, json={**body, "think": False}),
+                            timeout=max(0.1, remaining),
+                        )
+                        response.raise_for_status()
+                        payload = response.json()
+                    except (TimeoutError, httpx.HTTPError) as retry_exc:
+                        error = f"records model unreachable: {retry_exc!r} (after think-off retry for: {exc!r})"
+                else:
+                    error = f"records model unreachable: {exc!r}"
             except httpx.HTTPError as exc:
                 error = f"records model unreachable: {exc!r}"
             timings["llm_ms"] += _elapsed_ms(llm_start)

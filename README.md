@@ -23,7 +23,8 @@ solve a problem like echo cancellation?"
 
 - **Apple Silicon Mac recommended** — Whisper-MLX (the default STT) uses Apple's
   MLX framework and only runs there. Intel Macs and Linux work too: they default
-  to CPU STT (`faster_whisper`) automatically. Windows: not yet (WSL2 works).
+  to CPU STT (`faster_whisper`) automatically. Windows: run the bot inside
+  **WSL2** and open the browser UI from Windows (native Windows: not yet).
 - ~15 GB free disk for the models
 - Python **3.12** is pinned as 3.14 is too new for the ML wheels.
 - **A plain `uv sync` needs no compiler** — everything in the base install comes
@@ -61,9 +62,9 @@ uv run python scripts/prefetch_models.py
 Ctrl+C; then turn off wi-fi if you want to show off and then:
 
 ```bash
-./start.sh
+./lofi.sh start
 ```
-Open http://localhost:7860, choose "Media over QUIC", click Connect & have a conversation. (Prefer WebRTC? ./start.sh -t webrtc → http://localhost:7860/client.)
+Open http://localhost:7860 in Chrome or Edge (the MoQ transport needs WebTransport), click Connect & have a conversation.
 
 Or...
 
@@ -82,7 +83,7 @@ uv run python scripts/prefetch_models.py
 Ctrl+C; then turn off wi-fi if you want to show off and then:
 
 ```bash
-./start.sh -t headphones
+./lofi.sh start -t headphones
 ```
 Have a conversation.
 
@@ -119,8 +120,8 @@ cp env.example .env
 ### 2. Fetch the models (the one-time online step)
 
 Four model-backed components need weights. Two download from Hugging Face
-(anonymously — none are gated); the LLM is pulled by Ollama. Silero VAD and Smart
-Turn v3 ship *inside* the Pipecat package, so they download nothing.
+(anonymously — none are gated); the LLM is pulled by Ollama. Silero VAD ships
+*inside* the Pipecat package, so it downloads nothing.
 
 All checkpoints are steered into **one directory** — `LOFI_MODEL_DIR`, default
 `./models/` (gitignored) — so everything the bot needs lives next to the code.
@@ -141,17 +142,18 @@ rules, so Python and the shell scripts always agree.
 uv run python scripts/prefetch_models.py
 ```
 
-Pulls the Ollama models (`LOFI_LLM_MODEL`, ~9 GB, plus `LOFI_EMBED_MODEL`,
-~0.3 GB) into `$LOFI_MODEL_DIR/ollama` — starting a temporary `ollama serve`
+Pulls the Ollama models (`LOFI_LLM_MODEL` ~4.7 GB, `LOFI_RAG_LLM_MODEL`
+~5.2 GB, plus `LOFI_EMBED_MODEL` ~0.3 GB) into `$LOFI_MODEL_DIR/ollama` —
+starting a temporary `ollama serve`
 if none is running — downloads the configured STT engine's weights
 (Whisper-MLX `large-v3-turbo`, ~1.5 GB, into `$LOFI_MODEL_DIR/huggingface`;
 faster-whisper/Moonshine on non-Apple-Silicon) and Kokoro's ONNX model +
 voices (~350 MB) into `$LOFI_MODEL_DIR/kokoro`, and load-checks the bundled
-Silero VAD + Smart Turn v3 (no download). Run this **once, while online**;
+Silero VAD (no download). Run this **once, while online**;
 after it finishes the bot can run with Wi-Fi off.
 
-Approximate total download: **~11 GB** (9 GB LLM + 0.3 GB embeddings + 1.5 GB
-Whisper + 0.35 GB Kokoro).
+Approximate total download: **~12 GB** (4.7 GB front LLM + 5.2 GB analyst +
+0.3 GB embeddings + 1.5 GB Whisper + 0.35 GB Kokoro).
 
 To serve the LLM for the bot (and re-pull `LOFI_LLM_MODEL` if needed):
 
@@ -177,11 +179,11 @@ uv run bot.py
 The bot speaks a short greeting, then listens. Talk to it; it replies through your
 speakers. Talk over it and it yields (barge-in). Press **Ctrl-C** to stop.
 
-**One-command launch:** `./start.sh` brings up the repo-local Ollama server (if it
-isn't already running), prints the exact STT/LLM/TTS models in play, and serves the
-MoQ browser bot — so you can skip the manual `run_ollama.sh` step. Pick a
-different transport with `-t`: `./start.sh -t webrtc` (browser, SmallWebRTC) or
-`./start.sh -t headphones` (local audio hardware) — see
+**One-command launch:** `./lofi.sh start` brings up the repo-local Ollama server
+(if it isn't already running), prints the exact models in play, and serves the
+MoQ browser bot — so you can skip the manual `run_ollama.sh` step
+(`./lofi.sh stop` shuts down what it started). For the headphones front-end run
+`uv run bot.py` directly — see
 [echo cancellation](#how-do-you-solve-a-problem-like-echo-cancellation). Not sure
 what your machine can handle? `./configure.sh` prints recommended STT/LLM/TTS cascades
 sized to your hardware (add `-v` for the full hardware profile and per-slot model
@@ -214,29 +216,65 @@ the bot won't keep interrupting itself.
 Another fantastic workaround is to use a browser. Not the internet, just the web 
 browser. Do this and 🎉, you have echo cancellation.
 
-Two browser transports ship here — same offline brain, different transport. `start.sh`
-brings up Ollama and serves a local page (still fully offline — the browser talks to
-the bot over loopback, no internet):
+The browser transport here is MoQ over QUIC — same offline brain, different
+transport. `./lofi.sh start` brings up Ollama and serves a local page (still
+fully offline — the browser talks to the bot over loopback, no internet):
 
 ```bash
-./start.sh              # MoQ/QUIC → open http://localhost:7860, pick "Media over QUIC"
-./start.sh -t webrtc    # WebRTC   → open http://localhost:7860/client
+./lofi.sh start    # MoQ/QUIC → open http://localhost:7860 in Chrome/Edge
 ```
+
+MoQ uses WebTransport, which Safari and Firefox don't ship yet — use Chrome or
+Edge. On Windows, run the bot inside WSL2 and open the page from a Windows
+browser.
 
 ---
 
 ## No secrets, no keys
 
-There are **no API keys** anywhere in this project, and there's nowhere to put one:
+In the default, 100% local configuration there are **no API keys** anywhere in
+this project, and nowhere to put one:
 
 - **Ollama** pulls the LLM from its own public registry and serves it locally.
-- **Whisper-MLX, Kokoro, Silero VAD, Smart Turn v3** download anonymously from
-  Hugging Face (none are gated) — or, for Silero/Smart Turn, ship bundled with
-  Pipecat.
+- **Whisper-MLX and Kokoro** download anonymously from Hugging Face (none are
+  gated); **Silero VAD** ships bundled with Pipecat.
 
 `.env` is **config only** — model names, a voice, device indices, cache paths. It is
 gitignored, but nothing secret ever belongs in it. The single network event in the
 bot's entire lifecycle is the one-time, anonymous model download in step 2.
+
+The one exception is opt-in: [hosted mode](#going-online-the-hosted-llm-escape-hatch)
+reads an API key from the **shell environment** (`LOFI_HOSTED_API_KEY`), never
+from `.env` or any file in the repo.
+
+---
+
+## Going online: the hosted-LLM escape hatch
+
+The same bot can point its **conversation model** at any OpenAI-compatible
+hosted endpoint — OpenAI, Anthropic (via its compatibility layer), Groq,
+OpenRouter — while everything else stays local:
+
+```bash
+export LOFI_HOSTED_API_KEY=sk-...
+LOFI_LLM_ENGINE=hosted LOFI_HOSTED_BASE_URL=https://api.openai.com/v1 \
+  LOFI_LLM_MODEL=gpt-4o-mini ./lofi.sh start
+```
+
+You control exactly what leaves the machine, and the UI says so **loudly** — a
+persistent banner names the provider whenever hosted mode is on:
+
+- **`observer` / `split`**: the records analyst, the retrieval tools, your
+  documents and raw transactions all stay local. The hosted model sees only the
+  conversation — which includes the analyst's short spoken answers *about* your
+  records, but never the records themselves.
+- **`cascade`**: the hosted model holds the retrieval tools itself, so rows it
+  retrieves are sent to the provider as tool results. Great for comparing
+  SOTA tool-calling against local models; know what you're sharing.
+
+Pick a non-reasoning hosted model — the local reasoning-suppression knob is
+Ollama-specific. STT, TTS, embeddings, and retrieval have no hosted path at
+all: they are local, period.
 
 ---
 
@@ -245,11 +283,11 @@ bot's entire lifecycle is the one-time, anonymous model download in step 2.
 | Component | Service | Notes |
 |---|---|---|
 | Speech-to-text | `WhisperSTTServiceMLX` *(default)* | Apple-Silicon-optimized Whisper via MLX. Alternatives via `LOFI_STT_ENGINE`: `faster_whisper` (CPU), `moonshine` (tiny CPU ONNX) |
-| Language model | Llama-3.2-1B converses, Qwen3-8B answers from your records — both via **Ollama** | Local, OpenAI-compatible endpoint; env-configurable |
+| Language model | `qwen2.5:7b` front + `qwen3:8b` records analyst *(defaults)* via **Ollama** | Local, OpenAI-compatible endpoint; env-configurable. The observer architecture's analyst (`LOFI_RAG_LLM_MODEL`) answers from your records. |
 | Text-to-speech | `KokoroTTSService` *(default)* | Natural local neural voice (kokoro-onnx). Alternative via `LOFI_TTS_ENGINE`: `piper` |
-| Turn-taking | Silero VAD + Local Smart Turn v3 | Barge-in / interruptions, fully local (bundled with Pipecat) |
-| Transport | `LocalAudioTransport` | PyAudio mic + speaker I/O (requires headphones) |
-| Alternative transports | `SmallWebRTC` / `MoQ` | run in a browser → free echo cancellation via `getUserMedia` |
+| Turn-taking | Silero VAD | Barge-in / interruptions, fully local (bundled with Pipecat) |
+| Transport | `MoQ` (browser) | free echo cancellation via `getUserMedia`; needs Chrome/Edge |
+| Alternative transport | `LocalAudioTransport` | PyAudio mic + speaker I/O (requires headphones) |
 
 ---
 
@@ -264,30 +302,48 @@ ollama pull nomic-embed-text   # one-time, while online
 ./lofi.sh index-rag
 ```
 
-### One model, four tools
+### Three architectures, one env var
 
-The pipeline LLM (`LOFI_LLM_MODEL`, default `qwen2.5:14b`) does the talking
-and the retrieving. It holds four typed tools over the index; any question
-about transactions, spending, merchants, accounts, totals, or saved documents
-turns into tool calls, and the model answers only from what they return —
-streamed straight to the voice, with a short "Let me check your records."
-covering the lookup. Greetings and general questions it answers without tools.
+`LOFI_ARCHITECTURE` picks how retrieval and conversation share the work:
 
-Pick the model for your hardware — same code, one env var
-(`LOFI_LLM_MODEL=<tag> ./lofi.sh start`). Measured on an internal eval
-(23 gold queries, M4 Pro):
+- **`cascade`** — one model does the talking and the retrieving. It
+  holds four typed tools over the index; any question about transactions,
+  spending, merchants, accounts, totals, or saved documents turns into tool
+  calls, and the model answers only from what they return — with a short
+  "Let me check your records." covering the lookup. The simplest architecture
+  to read and the place to start.
+- **`split`** (retired, kept as teaching material) — a reasoning-off front
+  model holds ONE delegate tool and routes records questions to a reasoning-on
+  analyst. Routing recall capped around 0.51 on small models: the front model
+  silently drops questions it fails to route. That failure is the lesson.
+- **`observer`** (the default) — the front model has NO tools and just
+  converses; a records analyst (`LOFI_RAG_LLM_MODEL`, reasoning on) listens to
+  every user turn in parallel, decides relevance itself, and speaks grounded
+  answers directly. No routing decision can drop a question. The analyst
+  writes its spoken answers back into the conversation, so follow-ups work.
 
-| Model + architecture | RAM | Answer accuracy | Full lookup, mean |
+In observer mode the browser UI shows a **mode toggle**: 🧠 *accurate* (the
+analyst thinks before answering) ⇄ ⚡ *fast* (thinking off, optionally a
+smaller `LOFI_RAG_FAST_LLM_MODEL`). Same conversation, live latency/accuracy
+trade-off — flip it mid-session.
+
+Pick models for your hardware — same code, env vars
+(`LOFI_ARCHITECTURE=observer LOFI_RAG_LLM_MODEL=<tag> ./lofi.sh start`).
+Measured on an internal eval (28 gold queries incl. multi-turn, M4 Pro):
+
+| Config | RAM | Answer accuracy | Full lookup, mean |
 |---|---|---|---|
-| `nemotron-3-nano:4b` + `LOFI_ARCHITECTURE=observer` | 8 GB (smaller STT config) / 16 GB comfortable | **0.70** | ~11.3 s |
-| `qwen2.5:14b` cascade (default) | ≥ 24 GB | 0.65 | ~8.2 s |
+| observer: `qwen2.5:7b` front + `qwen3:8b` analyst (default) | ≥ 16 GB | **0.93** | ~20 s accurate mode* |
+| observer: `qwen2.5:7b` front + `nemotron-3-nano:4b` analyst | ≥ 16 GB (8 GB with smaller STT) | 0.79 | ~14 s accurate mode* |
+| `qwen2.5:14b` cascade | ≥ 24 GB | 0.65 | ~8.2 s |
 | `qwen2.5:7b` cascade | ≥ 16 GB | 0.43 | ~4.0 s |
 
-The 14b balances accuracy and wait. Nemotron answers best and fits the
-smallest machines, but it reasons silently before every reply — the money
-rain in the panel covers the think. The 7b is the snappiest feel.
-Reasoning models (deepseek-r1, qwen3 with thinking) are not supported
-as the pipeline model — nothing strips thinking tokens before the voice.
+*Latencies measured on a loaded machine — treat as a ranking, not a benchmark.
+
+Reasoning models (deepseek-r1, qwen3 with thinking) are not supported as the
+**pipeline** model — nothing strips thinking tokens before the voice. The
+observer's analyst is exactly where a reasoning model belongs: its thinking
+stays in the native API's `reasoning` field and never reaches TTS.
 
 An earlier version did RAG the way most tutorials do — chunk the CSV, embed the
 chunks, retrieve by cosine similarity. It could not answer "how much did I
@@ -391,6 +447,37 @@ excludes borrowed weights — delete the link and `ollama pull` /
 
 ---
 
+## Choosing local models for your machine
+
+The workshop question: *what can this computer actually run?* The process:
+
+1. **Profile the machine.** `./configure.sh` reads your RAM/CPU/GPU and prints
+   STT/LLM/TTS combos sized to it (`-v` for the full report with per-slot model
+   catalogs ranked by fit, `-i` to pick interactively). Rule of thumb: a
+   quantized model takes roughly its parameter count in GB (a 7b ≈ 4-5 GB, a
+   14b ≈ 9 GB), and *everything resident at once* has to fit — front model +
+   analyst + embedder + STT + TTS. `run_ollama.sh` sets
+   `OLLAMA_MAX_LOADED_MODELS=3` and `OLLAMA_KEEP_ALIVE=30m` so the working set
+   stays loaded instead of thrashing.
+2. **Measure, don't vibe.** The eval harness is the yardstick:
+   `uv run python evals/run_evals.py --stage observer` scores a candidate
+   analyst on gold queries (accuracy, missed questions, latency);
+   `--stage front` checks a candidate front model never invents numbers and
+   defers records questions. `evals/sweep.sh` loops a list of candidates
+   through both and prints a leaderboard — edit the candidate lists and run it
+   against your own hardware.
+3. **Read the right numbers.** `answer_accuracy` is the headline;
+   `sentinel_on_data` is questions the analyst wrongly ignored;
+   `silent_on_chitchat` catches an analyst that butts into small talk;
+   `total_ms_mean` is what the wait feels like. A model that's 5 points more
+   accurate but twice as slow is usually the wrong trade for live voice —
+   that's what the fast/accurate toggle is for.
+4. **Mind residency.** Swapping models mid-session costs a multi-second reload.
+   The defaults keep fast mode on the same analyst weights (thinking off) for
+   exactly this reason.
+
+---
+
 ## Configuration
 
 Every knob is an environment variable (read from `.env` if present). All are
@@ -413,7 +500,12 @@ not something ollama reads.
 
 | Variable | Default | What it does |
 |---|---|---|
-| `LOFI_LLM_MODEL` | `qwen2.5:14b` | Ollama tag for the model — conversation and the four retrieval tools. Same string `run_ollama.sh` pulls and the bot serves. Smaller machines: see the model table above. |
+| `LOFI_LLM_MODEL` | `qwen2.5:7b` | Ollama tag for the conversation model (and, in `cascade`, the four retrieval tools). Same string `run_ollama.sh` pulls and the bot serves. Smaller machines: see the model table above. |
+| `LOFI_ARCHITECTURE` | `observer` | `observer` (default) \| `cascade` \| `split` (retired) — see [Three architectures](#three-architectures-one-env-var). |
+| `LOFI_RAG_LLM_MODEL` | `qwen3:8b` | Ollama tag for the records analyst (`split`/`observer`) — the measured best (0.93 on the eval). `nemotron-3-nano:4b` on smaller machines. |
+| `LOFI_RAG_FAST_LLM_MODEL` | `$LOFI_RAG_LLM_MODEL` | Analyst model for the UI's ⚡ fast mode (thinking always off there). A *distinct* fast model needs `OLLAMA_MAX_LOADED_MODELS=4` so nothing gets evicted. |
+| `LOFI_LLM_ENGINE` | `ollama` | `ollama` (local) \| `hosted` (any OpenAI-compatible endpoint) — see [Going online](#going-online-the-hosted-llm-escape-hatch). |
+| `LOFI_HOSTED_BASE_URL` | `https://api.openai.com/v1` | Endpoint for `hosted` mode. Key comes from the shell env: `LOFI_HOSTED_API_KEY` (or `OPENAI_API_KEY`). |
 | `LOFI_OLLAMA_BASE_URL` | `http://localhost:11434/v1` | OpenAI-compatible Ollama endpoint (note the trailing `/v1`). The RAG embedder talks to the same host minus `/v1`. |
 | `LOFI_EMBED_MODEL` | `nomic-embed-text` | Ollama model tag for RAG embeddings. Pull it with `ollama pull nomic-embed-text`. |
 | `LOFI_RAG_DATA_DIR` | `./data` | The documents to index (`.txt`/`.md`/`.pdf`) — put files here, then `./lofi.sh index-rag`. Absolute, `~`, or relative-to-repo. |
@@ -458,43 +550,49 @@ changes the voice you hear.
 
 ## Repository layout
 
-All three bots share one offline brain (the same STT → VAD → LLM → TTS pipeline);
-they differ only in the transport. The STT/LLM/TTS services themselves are built in
-`services.py`, dispatched on `LOFI_STT_ENGINE` / `LOFI_TTS_ENGINE` — so swapping engines (via
-`.env` or `./configure.sh -i`) never touches a bot file you may have customized.
+Both bots share one offline brain (`pipeline.py` — the same STT → VAD → LLM →
+TTS pipeline); they differ only in the transport. The STT/LLM/TTS services are
+built in `services.py`, dispatched on `LOFI_STT_ENGINE` / `LOFI_TTS_ENGINE` /
+`LOFI_LLM_ENGINE` — so swapping engines (via `.env` or `./configure.sh -i`)
+never touches a bot file you may have customized.
 
 ```
 lofi/
 ├── bot.py                    # CLI / headphones — LocalAudioTransport
-├── bot_web.py                # browser / speakers — SmallWebRTC (free echo cancellation)
-├── bot_moq.py                # browser / speakers — MoQ over QUIC (lower latency)
-├── services.py               # STT/LLM/TTS builders, engine-dispatched (LOFI_STT_ENGINE / LOFI_TTS_ENGINE)
+├── bot_moq.py                # browser / speakers — MoQ over QUIC, serves client/dist
+├── pipeline.py               # the one build_pipeline() every bot shares
+├── services.py               # STT/LLM/TTS builders, engine-dispatched
 ├── config.py                 # env-driven settings, zero-config defaults
+├── observer_processor.py     # observer architecture: the analyst on every turn
+├── rag_agent.py              # the records analyst (native Ollama API, thinking on)
+├── tools.py                  # the four retrieval tool schemas + Pipecat wiring
+├── retrieval.py              # lookup / filter_rows / aggregate / semantic_search
+├── store.py                  # the SQLite schema (rows + FTS5 + sqlite-vec)
+├── ingest.py                 # extract → serialize → chunk → embed → index
+├── silence_watchdog.py       # "I'm still working on it" during long lookups
 ├── spoken_text_filter.py     # TTS filter: "$3,000" → "three thousand dollars"
 ├── prompts/
-│   └── financial_advisor.py  # the v1 system prompt
+│   ├── financial_advisor.py  # front prompts (cascade / split / observer)
+│   └── records_analyst.py    # the analyst's prompt + NOT_RECORDS sentinel
 │
-├── start.sh                  # one command: bring up Ollama + run the bot (-t moq|webrtc|headphones)
+├── lofi.sh                   # start | stop | status | index-rag | consolidate | configure
 ├── configure.sh              # what can this machine handle? (-v full report, -i model picker)
-├── stop.sh                   # stop the background Ollama server
 │
 ├── scripts/
 │   ├── model_dir.sh          # resolves LOFI_MODEL_DIR for the shell scripts
 │   │                         #   (config.py does the same for Python)
 │   ├── run_ollama.sh         # relocate Ollama store + serve + pull the LLM
-│   ├── prefetch_models.py    # one-time online warm-up (Whisper + Kokoro)
+│   ├── prefetch_models.py    # one-time online warm-up for every default model
+│   ├── print_models.py       # the "what's running" panel / status lines
 │   ├── check_wheels.py       # tripwire: every dep must have a wheel per platform
 │   ├── check_audio.py        # diagnostic: raw mic input level meter
 │   └── check_vad.py          # diagnostic: Silero VAD confidence/volume vs thresholds
 │
-├── ralph/                    # the "ralph loop" that built this repo
-│   ├── ralph.sh              #   autonomous agent runner
-│   ├── PROMPT.md             #   per-iteration instructions for the loop
-│   ├── RALPH.md              #   operator runbook for the loop
-│   └── PLAN.md               #   the approved build plan the loop followed
+├── client/                   # the browser UI (Vite + TypeScript; prebuilt in client/dist)
+├── evals/                    # eval harness: run_evals.py, queries.jsonl, sweep.sh
+├── tests/                    # offline pytest suite (no network, fake embedder)
 │
-├── MODELS_TO_ADD.md          # engines considered but not (yet) wired — and why
-├── env.example              # documented config knobs (copy to .env)
+├── env.example               # documented config knobs (copy to .env)
 ├── .python-version           # 3.12
 ├── pyproject.toml            # uv project + pinned deps
 ├── uv.lock                   # locked dependency versions
@@ -504,6 +602,7 @@ lofi/
     ├── huggingface/          # Whisper-MLX + faster-whisper + Moonshine (HF cache)
     ├── kokoro/               # Kokoro onnx + voices
     ├── piper/                # Piper voices (if LOFI_TTS_ENGINE=piper)
+    ├── rag-index/            # lofi.db — the RAG index (./lofi.sh index-rag)
     └── ollama/               # Ollama LLM store
 ```
 

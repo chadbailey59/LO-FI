@@ -118,6 +118,20 @@ def test_question_is_grounded_with_date_range_and_categories(db):
     assert content.endswith("Question: spend last August?")
 
 
+def test_history_threads_between_system_and_grounded_question(db):
+    history = [
+        {"role": "user", "content": "what did I spend at Paulie's?"},
+        {"role": "assistant", "content": "You spent $40.00 at Paulie's Delicatessen."},
+    ]
+    _result, client = run(
+        db, "what category was that?", [content_payload("Deli.")], history=history
+    )
+    messages = client.requests[0]["messages"]
+    assert messages[0]["role"] == "system"
+    assert messages[1:3] == history
+    assert messages[-1]["content"].endswith("Question: what category was that?")
+
+
 def test_tool_round_trip_runs_real_retrieval(db):
     result, client = run(
         db,
@@ -186,6 +200,40 @@ def test_round_cap_forces_final_compose_without_tools(db):
     assert "tools" in client.requests[1]
     assert "tools" not in client.requests[2]
     assert result.answer == "Done."
+
+
+class FakeThinkRejectingClient(FakeClient):
+    """400s any request with think=true, like Ollama serving a non-thinking model."""
+
+    async def post(self, url, json=None, **kwargs):
+        if json.get("think"):
+            self.urls.append(url)
+            self.requests.append(json)
+            request = httpx.Request("POST", url)
+            response = httpx.Response(
+                400, request=request, json={"error": "model does not support thinking"}
+            )
+            raise httpx.HTTPStatusError("Client error '400'", request=request, response=response)
+        return await super().post(url, json=json, **kwargs)
+
+
+def test_non_thinking_model_falls_back_to_think_off(db):
+    client = FakeThinkRejectingClient([content_payload("You spent $40.00.")])
+    result = asyncio.run(
+        rag_agent.answer_question(
+            "what did I pay?",
+            db_path=db,
+            embedder=ingest.FakeEmbedder(),
+            model="twin-test",
+            api_url="http://localhost:11434",
+            client=client,
+            today=PINNED_TODAY,
+        )
+    )
+    assert result.answer == "You spent $40.00."
+    assert result.error is None
+    assert client.requests[0]["think"] is True
+    assert client.requests[1]["think"] is False
 
 
 def test_connect_error_returns_fallback(db):

@@ -198,6 +198,7 @@ def test_model_entries_lists_the_roles(monkeypatch):
     monkeypatch.setattr(print_models, "_ollama_file", lambda tag: None)
     entries = print_models.model_entries()
 
-    assert [e["role"] for e in entries] == ["STT", "LLM", "TTS", "EMBED"]
+    assert [e["role"] for e in entries] == ["STT", "LLM", "ANALYST", "TTS", "EMBED"]
     by_role = {e["role"]: e for e in entries}
     assert by_role["LLM"]["model"].startswith(config.llm_model())
+    assert by_role["ANALYST"]["model"].startswith(config.rag_llm_model())

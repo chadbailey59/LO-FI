@@ -363,23 +363,48 @@ def _tts_line() -> str:
     return f"unknown engine '{engine}'"
 
 
+def _llm_entry() -> dict:
+    if config.llm_engine() == "hosted":
+        host = config.hosted_base_url()
+        return {
+            "role": "LLM",
+            "model": f"{config.llm_model()} (HOSTED @ {host})",
+            "path": "→ remote endpoint — conversation leaves this machine",
+        }
+    return {
+        "role": "LLM",
+        "model": f"{config.llm_model()} (Ollama @ {config.ollama_base_url()})",
+        "path": _path_line(_ollama_file(config.llm_model())),
+    }
+
+
 def model_entries() -> list[dict]:
     """Importable form of the model lines (bot_moq sends them as `lofi-config`)."""
     ollama = f"(Ollama @ {config.ollama_base_url()})"
-    return [
+    entries = [
         {"role": "STT", "model": _stt_line(), "path": _path_line(_stt_file())},
-        {
-            "role": "LLM",
-            "model": f"{config.llm_model()} {ollama}",
-            "path": _path_line(_ollama_file(config.llm_model())),
-        },
-        {"role": "TTS", "model": _tts_line(), "path": _path_line(_tts_file())},
-        {
-            "role": "EMBED",
-            "model": f"{config.embed_model()} {ollama}",
-            "path": _path_line(_ollama_file(config.embed_model())),
-        },
+        _llm_entry(),
     ]
+    # Split/observer run the records analyst as its own (always local) model.
+    if config.architecture() in ("split", "observer"):
+        entries.append(
+            {
+                "role": "ANALYST",
+                "model": f"{config.rag_llm_model()} {ollama}",
+                "path": _path_line(_ollama_file(config.rag_llm_model())),
+            }
+        )
+    entries.extend(
+        [
+            {"role": "TTS", "model": _tts_line(), "path": _path_line(_tts_file())},
+            {
+                "role": "EMBED",
+                "model": f"{config.embed_model()} {ollama}",
+                "path": _path_line(_ollama_file(config.embed_model())),
+            },
+        ]
+    )
+    return entries
 
 
 def main() -> None:

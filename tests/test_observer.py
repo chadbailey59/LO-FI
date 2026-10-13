@@ -6,11 +6,15 @@ import asyncio
 
 from pipecat.frames.frames import LLMContextFrame, TTSSpeakFrame, UserStartedSpeakingFrame
 from pipecat.processors.aggregators.llm_context import LLMContext
-from pipecat.processors.frameworks.rtvi.frames import RTVIServerMessageFrame
+from pipecat.processors.frameworks.rtvi.frames import (
+    RTVIClientMessageFrame,
+    RTVIServerMessageFrame,
+)
 from pipecat.tests.utils import SleepFrame, run_test
 
+import config
 import rag_agent
-from observer_processor import RecordsObserver
+from observer_processor import MODE_MESSAGE_TYPE, RecordsObserver
 from prompts import records_analyst
 
 ANSWER = "You spent $40.00 at Paulie's Delicatessen on August 24, 2026."
@@ -76,7 +80,54 @@ def test_speaks_grounded_answer_and_updates_context():
     assert signals(down) == ["lofi-busy"]
     assert context.get_messages()[-1] == {"role": "assistant", "content": ANSWER}
     assert agent.calls[0]["question"] == "what did I buy at Paulie's?"
+    assert agent.calls[0]["history"] == []
     assert agent.calls[0]["system_prompt"] == records_analyst.OBSERVER_SYSTEM_PROMPT
+
+
+def test_passes_recent_history_to_analyst():
+    context = LLMContext(
+        messages=[
+            {"role": "system", "content": "front prompt"},
+            {"role": "user", "content": "what did I spend at Paulie's?"},
+            {"role": "assistant", "content": "You spent $40.00 at Paulie's Delicatessen."},
+            {"role": "user", "content": "what category was that?"},
+        ]
+    )
+    agent = FakeAgent([rag_agent.AgentResult(answer=ANSWER, traces=[])])
+    run_observer(context, agent, [LLMContextFrame(context), SleepFrame(0.1)])
+
+    assert agent.calls[0]["question"] == "what category was that?"
+    assert agent.calls[0]["history"] == [
+        {"role": "user", "content": "what did I spend at Paulie's?"},
+        {"role": "assistant", "content": "You spent $40.00 at Paulie's Delicatessen."},
+    ]
+
+
+def test_history_caps_at_six_turns_and_skips_non_text():
+    messages = [{"role": "system", "content": "front prompt"}]
+    for i in range(8):
+        messages.append({"role": "user", "content": f"question {i}?"})
+        messages.append({"role": "assistant", "content": f"answer {i}."})
+    messages.append({"role": "assistant", "content": [{"type": "image"}]})
+    messages.append({"role": "user", "content": "latest question?"})
+    context = LLMContext(messages=messages)
+    agent = FakeAgent([rag_agent.AgentResult(answer=ANSWER, traces=[])])
+    run_observer(context, agent, [LLMContextFrame(context), SleepFrame(0.1)])
+
+    history = agent.calls[0]["history"]
+    assert len(history) == 6
+    assert history[0] == {"role": "user", "content": "question 5?"}
+    assert history[-1] == {"role": "assistant", "content": "answer 7."}
+    assert agent.calls[0]["question"] == "latest question?"
+
+
+def test_zero_trace_answer_speaks_and_releases_busy():
+    context = make_context("which store was the biggest one at?")
+    agent = FakeAgent([rag_agent.AgentResult(answer=ANSWER, traces=[])])
+    down = run_observer(context, agent, [LLMContextFrame(context), SleepFrame(0.1)])
+
+    assert spoken(down) == [ANSWER]
+    assert signals(down) == ["lofi-busy", "lofi-idle"]
 
 
 def test_sentinel_stays_silent():
@@ -106,6 +157,67 @@ def test_context_frame_forwards_immediately():
     agent = FakeAgent([never])
     down = run_observer(context, agent, [LLMContextFrame(context), SleepFrame(0.05)])
     assert any(isinstance(f, LLMContextFrame) for f in down)
+
+
+def mode_frame(mode):
+    return RTVIClientMessageFrame(msg_id="m1", type=MODE_MESSAGE_TYPE, data={"mode": mode})
+
+
+def mode_confirmations(down):
+    return [
+        f.data for f in down
+        if isinstance(f, RTVIServerMessageFrame) and f.data.get("type") == MODE_MESSAGE_TYPE
+    ]
+
+
+def test_default_mode_is_accurate_thinking_analyst():
+    context = make_context("what did I buy at Paulie's?")
+    agent = FakeAgent([rag_agent.AgentResult(answer=ANSWER, traces=[])])
+    run_observer(context, agent, [LLMContextFrame(context), SleepFrame(0.1)])
+
+    assert agent.calls[0]["think"] is True
+    assert agent.calls[0]["model"] == config.rag_llm_model()
+
+
+def test_fast_mode_switches_analyst_to_no_think_fast_model(monkeypatch):
+    monkeypatch.setenv("LOFI_RAG_FAST_LLM_MODEL", "tiny-fast:1b")
+    context = make_context("what did I buy at Paulie's?")
+    agent = FakeAgent([rag_agent.AgentResult(answer=ANSWER, traces=[])])
+    down = run_observer(
+        context,
+        agent,
+        [mode_frame("fast"), LLMContextFrame(context), SleepFrame(0.1)],
+    )
+
+    assert agent.calls[0]["think"] is False
+    assert agent.calls[0]["model"] == "tiny-fast:1b"
+    confirmations = mode_confirmations(down)
+    assert confirmations and confirmations[0]["mode"] == "fast"
+    assert confirmations[0]["analyst_model"] == "tiny-fast:1b"
+    assert confirmations[0]["thinking"] is False
+
+
+def test_mode_toggles_back_to_accurate():
+    context = make_context("what did I buy at Paulie's?")
+    agent = FakeAgent([rag_agent.AgentResult(answer=ANSWER, traces=[])])
+    down = run_observer(
+        context,
+        agent,
+        [mode_frame("fast"), mode_frame("accurate"), LLMContextFrame(context), SleepFrame(0.1)],
+    )
+    assert agent.calls[0]["think"] is True
+    assert mode_confirmations(down)[-1]["mode"] == "accurate"
+
+
+def test_unknown_client_messages_are_ignored_and_forwarded():
+    context = make_context("what did I buy at Paulie's?")
+    agent = FakeAgent([rag_agent.AgentResult(answer=ANSWER, traces=[])])
+    other = RTVIClientMessageFrame(msg_id="m2", type="some-other-thing", data={"x": 1})
+    down = run_observer(context, agent, [other, LLMContextFrame(context), SleepFrame(0.1)])
+
+    assert any(isinstance(f, RTVIClientMessageFrame) for f in down)
+    assert mode_confirmations(down) == []
+    assert agent.calls[0]["think"] is True
 
 
 def test_barge_in_cancels_pending_lookup():

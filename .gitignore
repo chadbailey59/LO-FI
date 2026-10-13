@@ -20,6 +20,10 @@ __pycache__/
 
 # Scratch/temp
 _verify_tmp.py
+.superpowers/
+
+# Model-sweep eval reports (evals/sweep.sh)
+evals/results/
 
 # Runtime + debug logs
 *.log

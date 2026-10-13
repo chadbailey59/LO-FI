@@ -36,7 +36,12 @@ import ingest
 import store
 import tools
 from observer_processor import RecordsObserver
-from prompts.financial_advisor import FRONT_PROMPT, OBSERVER_FRONT_PROMPT, system_prompt
+from prompts.financial_advisor import (
+    FRONT_PROMPT,
+    OBSERVER_FRONT_PROMPT,
+    hosted_variant,
+    system_prompt,
+)
 from services import build_llm, build_stt, build_tts
 from silence_watchdog import SilenceWatchdog
 
@@ -104,6 +109,8 @@ def build_pipeline(transport: BaseTransport) -> BuiltBot:
             date_range=store.date_range(db_path) if records_tools else None,
             categories=store.categories(db_path) if records_tools else None,
         )
+    if config.llm_engine() == "hosted":
+        prompt = hosted_variant(prompt)
     context = (
         LLMContext(messages=[{"role": "system", "content": prompt}], tools=records_tools)
         if records_tools

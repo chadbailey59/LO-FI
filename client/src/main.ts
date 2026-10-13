@@ -1,7 +1,14 @@
 import "./style.css";
 import type { TransportState } from "@pipecat-ai/client-js";
 import { createClient, startBot } from "./connection";
-import { attachConfigPanel, attachMoneyRain, attachRagPanel } from "./panels";
+import {
+  attachConfigPanel,
+  attachHostedBanner,
+  attachModeToggle,
+  attachMoneyRain,
+  attachRagPanel,
+  attachStopwatch,
+} from "./panels";
 import { attachTranscript } from "./transcript";
 
 const connectButton = document.querySelector<HTMLButtonElement>("#connect")!;
@@ -36,6 +43,9 @@ const transcript = attachTranscript(client, transcriptPane);
 attachConfigPanel(client, configLines);
 attachRagPanel(client, ragTurns);
 attachMoneyRain(client, document.querySelector<HTMLElement>("#rag-panel")!);
+attachModeToggle(client, document.querySelector<HTMLButtonElement>("#mode-toggle")!);
+attachHostedBanner(client, document.querySelector<HTMLElement>("#hosted-banner")!);
+attachStopwatch(client, document.querySelector<HTMLElement>("#rag-stopwatch")!);
 
 connectButton.addEventListener("click", async () => {
   connectButton.disabled = true;

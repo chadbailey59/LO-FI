@@ -27,11 +27,24 @@ from pipecat.frames.frames import (
 )
 from pipecat.processors.aggregators.llm_context import LLMContext
 from pipecat.processors.frame_processor import FrameDirection, FrameProcessor
-from pipecat.processors.frameworks.rtvi.frames import RTVIServerMessageFrame
+from pipecat.processors.frameworks.rtvi.frames import (
+    RTVIClientMessageFrame,
+    RTVIServerMessageFrame,
+)
 
+import config
 import rag_agent
 from prompts import records_analyst
 from tools import BUSY_MESSAGE_TYPE, IDLE_MESSAGE_TYPE, RAG_MESSAGE_TYPE
+
+# Prior turns handed to the analyst alongside the question.
+HISTORY_TURNS = 6
+
+# Client toggle: {"type": "lofi-mode", "data": {"mode": "fast" | "accurate"}}.
+# "accurate" = analyst model, thinking on; "fast" = fast model, thinking off.
+# Server confirms with the same type; next turn picks up the new mode.
+MODE_MESSAGE_TYPE = "lofi-mode"
+MODES = ("fast", "accurate")
 
 
 class RecordsObserver(FrameProcessor):
@@ -51,6 +64,7 @@ class RecordsObserver(FrameProcessor):
         self._answer_fn = answer_fn or rag_agent.answer_question
         self._today = today
         self._task: asyncio.Task | None = None
+        self._mode = "accurate"
 
     async def process_frame(self, frame: Frame, direction: FrameDirection):
         await super().process_frame(frame, direction)
@@ -59,25 +73,61 @@ class RecordsObserver(FrameProcessor):
             self._observe()
         elif isinstance(frame, (UserStartedSpeakingFrame, EndFrame)):
             await self._cancel()
+        elif isinstance(frame, RTVIClientMessageFrame) and frame.type == MODE_MESSAGE_TYPE:
+            data = frame.data if isinstance(frame.data, dict) else {}
+            await self._set_mode(data.get("mode"))
 
         await self.push_frame(frame, direction)
 
-    def _latest_user_text(self) -> str:
-        for message in reversed(self._context.get_messages()):
+    def _analyst_config(self) -> tuple[str, bool]:
+        if self._mode == "fast":
+            return config.rag_fast_llm_model(), False
+        return config.rag_llm_model(), True
+
+    async def _set_mode(self, mode) -> None:
+        if mode not in MODES:
+            logger.warning(f"records observer: ignoring unknown mode {mode!r}")
+            return
+        self._mode = mode
+        model, think = self._analyst_config()
+        await self.push_frame(
+            RTVIServerMessageFrame(
+                data={
+                    "type": MODE_MESSAGE_TYPE,
+                    "mode": mode,
+                    "analyst_model": model,
+                    "thinking": think,
+                }
+            )
+        )
+
+    def _question_and_history(self) -> tuple[str, list[dict]]:
+        """Latest user message as the question, plus up to HISTORY_TURNS
+        preceding text turns (system excluded) so follow-ups resolve."""
+        messages = self._context.get_messages()
+        question = ""
+        question_index = len(messages)
+        for index in range(len(messages) - 1, -1, -1):
+            message = messages[index]
             if message.get("role") == "user":
                 content = message.get("content")
-                if isinstance(content, str):
-                    return content.strip()
-                return ""
-        return ""
+                question = content.strip() if isinstance(content, str) else ""
+                question_index = index
+                break
+        history = [
+            {"role": m["role"], "content": m["content"]}
+            for m in messages[:question_index]
+            if m.get("role") in ("user", "assistant") and isinstance(m.get("content"), str)
+        ]
+        return question, history[-HISTORY_TURNS:]
 
     def _observe(self) -> None:
-        question = self._latest_user_text()
+        question, history = self._question_and_history()
         if not question:
             return
         if self._task is not None and not self._task.done():
             self._task.cancel()
-        self._task = self.create_task(self._answer(question))
+        self._task = self.create_task(self._answer(question, history))
 
     async def _signal(self, message_type: str) -> None:
         await self.push_frame(RTVIServerMessageFrame(data={"type": message_type}))
@@ -88,14 +138,18 @@ class RecordsObserver(FrameProcessor):
             await self._signal(IDLE_MESSAGE_TYPE)
         self._task = None
 
-    async def _answer(self, question: str) -> None:
+    async def _answer(self, question: str, history: list[dict]) -> None:
         await self._signal(BUSY_MESSAGE_TYPE)
+        model, think = self._analyst_config()
         result = await self._answer_fn(
             question,
             db_path=self._db_path,
             embedder=self._embedder,
             today=self._today,
             system_prompt=records_analyst.OBSERVER_SYSTEM_PROMPT,
+            history=history,
+            model=model,
+            think=think,
         )
         answer = result.answer.strip()
         if records_analyst.NOT_RECORDS in answer or result.error:
@@ -116,5 +170,9 @@ class RecordsObserver(FrameProcessor):
                     }
                 )
             )
+        # Answers composed without tools (e.g. from threaded history) emit no
+        # route lines — release the client's busy state explicitly.
+        if not result.traces:
+            await self._signal(IDLE_MESSAGE_TYPE)
         await self.push_frame(TTSSpeakFrame(answer))
         self._context.add_message({"role": "assistant", "content": answer})

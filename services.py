@@ -115,7 +115,39 @@ def build_stt():
 
 
 def build_llm():
-    """Build the local Ollama large-language-model service."""
+    """Build the conversation LLM selected by ``LOFI_LLM_ENGINE``.
+
+    ``ollama`` (default) is the local path. ``hosted`` points the same
+    OpenAI-compatible client at LOFI_HOSTED_BASE_URL — front model only; the
+    records analyst stays on local Ollama, so documents and raw transactions
+    never leave the machine.
+    """
+    engine = config.llm_engine()
+
+    if engine == "hosted":
+        from pipecat.services.openai.llm import OpenAILLMService
+
+        api_key = config.hosted_api_key()
+        if not api_key:
+            if config.hosted_key_in_dotenv_only():
+                sys.exit(
+                    "\n✖ Found an API key in .env — keys never go in .env (it gets backed up and shared)\n"
+                    "  Remove it from .env and export it in your shell instead:\n"
+                    "    export LOFI_HOSTED_API_KEY=sk-...\n"
+                )
+            sys.exit(
+                "\n✖ LOFI_LLM_ENGINE=hosted needs an API key in the shell environment\n"
+                "  Set LOFI_HOSTED_API_KEY (or OPENAI_API_KEY) — keys never go in .env\n"
+            )
+        base_url = config.hosted_base_url()
+        logger.warning(f"HOSTED LLM: conversation goes to {base_url} ({config.llm_model()})")
+        # Pick a non-reasoning hosted model; no Ollama reasoning_effort hack here.
+        return OpenAILLMService(
+            settings=OpenAILLMService.Settings(model=config.llm_model()),
+            base_url=base_url,
+            api_key=api_key,
+        )
+
     from pipecat.services.ollama.llm import OLLamaLLMService
 
     return OLLamaLLMService(
