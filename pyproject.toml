@@ -1,14 +1,78 @@
 [project]
-name = "lo-fi"
+name = "lofi"
 version = "0.1.0"
 requires-python = ">=3.12,<3.13"
 dependencies = [
+    # The dev runner (pipecat.runner.run) needs fastapi + uvicorn. Pipecat's
+    # "runner" extra would provide them but drags in pipecat-ai-prebuilt (the
+    # stock browser UI, replaced by client/dist/), so depend on them directly
+    # with pipecat's own pins.
+    "fastapi>=0.115.6,<1",
     "loguru>=0.7.3",
     "moq-rs>=0.3.2,<0.4.0",
     "num2words>=0.5.14",
-    "pipecat-ai-prebuilt>=1.0.5",
-    "pipecat-ai[kokoro,mlx-whisper,moq,silero,webrtc,whisper]>=1.7.0",
-    "pyaudio>=0.2.14",
+    "pipecat-ai[kokoro,moq,silero,whisper]>=1.7.0,<1.8",
+    # 1.8+ drops Intel-mac wheels (core dep loudness + moq-ffi ship none) — see README.
+    # MLX ships no Intel-mac wheels — Whisper-MLX is Apple Silicon only; other
+    # platforms default to faster-whisper (CPU) instead (see services.py).
+    "pipecat-ai[mlx-whisper]>=1.7.0; sys_platform == 'darwin' and platform_machine == 'arm64'",
+    "pypdf>=6.16.2",
     "python-dotenv>=1.2.2",
+    "sqlite-vec>=0.1.9",
     "textual>=8.2.8",
+    "uvicorn>=0.32.0,<1",
 ]
+
+# Optional STT/TTS engines (see services.py; pick via ./configure.sh -i):
+#   uv sync --extra moonshine --extra piper
+# NOTE: piper-tts is GPL-3.0 — fine for running this repo, but relevant if you
+# distribute a closed-source app built on it.
+[project.optional-dependencies]
+moonshine = ["pipecat-ai[moonshine]"]
+piper = ["pipecat-ai[piper]"]
+# bot.py (LocalAudioTransport) only. PyAudio ships wheels for Windows *only*, so
+# on macOS/Linux it compiles against PortAudio — the one dependency here that
+# needs a C toolchain. Keeping it out of the base install means a bare
+# `uv sync` works on any machine, and the browser front-end (bot_moq.py)
+# runs without it; it gets echo cancellation from the browser anyway.
+# See README "Requirements".
+#   brew install portaudio && uv sync --extra local-audio
+local-audio = ["pyaudio>=0.2.14"]
+
+[tool.uv]
+# pipecat pins onnxruntime ~=1.24.3, but onnxruntime 1.24 dropped Intel-mac
+# wheels. 1.23 is API-compatible for everything that runs on it here (Silero
+# VAD, smart-turn, Kokoro, Moonshine), so Intel macs get 1.23 while every
+# other platform keeps pipecat's intended pin.
+override-dependencies = [
+    "onnxruntime>=1.24.3,<1.25; sys_platform != 'darwin' or platform_machine != 'x86_64'",
+    "onnxruntime>=1.23,<1.24; sys_platform == 'darwin' and platform_machine == 'x86_64'",
+]
+
+# Intel-mac wheel cliffs. Unlike onnxruntime above, these upstream pins are wide
+# enough that a plain ceiling works — so use constraints, which narrow the
+# existing requirement instead of replacing it (an override here would erase
+# pyopenssl's own cryptography pin and let the resolver pick a broken pair).
+#
+# Every entry is "last release that still shipped a macosx x86_64 wheel". Without
+# them, uv falls back to the sdist and Intel macs need a full LLVM/Rust toolchain
+# to `uv sync` — which is what the llvmlite build failure was.
+#
+#   numba        0.63.0 dropped Intel-mac wheels (llvmlite 0.46.0 did the same).
+#                numba pins llvmlite itself, so capping numba is enough.
+#   cryptography 49.0.0 went macOS-arm64-only. Capping it also walks pyopenssl
+#                back to 26.2.x, the last release that accepts cryptography <49.
+#
+# Re-check with scripts/check_wheels.py when bumping pipecat.
+constraint-dependencies = [
+    "numba<0.63; sys_platform == 'darwin' and platform_machine == 'x86_64'",
+    "cryptography<49; sys_platform == 'darwin' and platform_machine == 'x86_64'",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=9.1.1",
+]
+
+[tool.pytest.ini_options]
+pythonpath = ["."]

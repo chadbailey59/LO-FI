@@ -7,20 +7,22 @@ MoQ relay in serve mode; the runner auto-generates a localhost TLS cert, so it s
 offline (loopback QUIC — no internet).
 
 Run:
-    ./start.sh
-    # open http://localhost:7860, choose "Media over QUIC" in the dropdown, allow the mic, Connect.
+    ./lofi.sh start
+    # opens http://localhost:7860 (the lofi client from client/dist/) — allow the mic, Connect.
 
-Reuses bot.py's exact pipeline/builders (VADProcessor + Whisper/Ollama/Kokoro + SpokenTextFilter);
+Reuses the shared pipeline from pipeline.py (VADProcessor + Whisper/Ollama/Kokoro);
 the ONLY difference from bot_web.py is the transport (MOQParams) and MoQ's event-handler shapes.
 """
 
 # config FIRST — sets HF_HOME / Kokoro cache paths before any pipecat/HF import (see config.py).
 import config
 
+import asyncio
+from pathlib import Path
+
 from dotenv import load_dotenv
 from loguru import logger
 from pipecat.frames.frames import TTSSpeakFrame
-from pipecat.pipeline.pipeline import Pipeline
 from pipecat.pipeline.worker import PipelineParams, PipelineWorker
 from pipecat.runner.types import RunnerArguments
 from pipecat.runner.utils import create_transport
@@ -28,64 +30,149 @@ from pipecat.transports.base_transport import BaseTransport
 from pipecat.transports.moq.transport import MOQParams
 from pipecat.workers.runner import WorkerRunner
 
-# Reuse the exact offline builders + helpers from the CLI bot — one brain, three transports.
-from bot import (
-    _configure_logging,
-    _preflight_llm,
-    build_context,
-    build_context_aggregator,
-    build_llm,
-    build_stt,
-    build_tts,
-    build_vad_processor,
-)
+import store
+from bot import _configure_logging, _preflight_llm, _preflight_rag, _preflight_stt
+from pipeline import build_pipeline
+from scripts.print_models import model_entries
 
 load_dotenv(override=True)
 
-# MoQ transport with audio in/out. Serve mode (the bot is its own MoQ relay) is the default
-# via the runner; no ICE, no internet — loopback QUIC.
+CONFIG_MESSAGE_TYPE = "lofi-config"
+
+CLIENT_DIST = Path(__file__).resolve().parent / "client" / "dist"
+
+
+def _serve_client_dist(app) -> None:
+    """Register the lofi frontend on the dev runner's FastAPI app.
+
+    The runner has no option for a custom static dir (its `_setup_frontend_routes`
+    hardcodes the pipecat-ai-prebuilt UI, now uninstalled — it logs one startup
+    error about that and mounts nothing). Routes registered before `main()` win.
+
+    The COOP/COEP headers make the page cross-origin isolated, which unlocks
+    SharedArrayBuffer: the MoQ player then uses its one-second atomic audio
+    ring instead of the 160ms postMessage fallback that drops the start of
+    every bot utterance. Everything the page loads is same-origin, so the
+    isolation costs nothing.
+    """
+    from fastapi.responses import FileResponse
+    from fastapi.staticfiles import StaticFiles
+
+    @app.middleware("http")
+    async def cross_origin_isolation(request, call_next):
+        response = await call_next(request)
+        response.headers["Cross-Origin-Opener-Policy"] = "same-origin"
+        response.headers["Cross-Origin-Embedder-Policy"] = "require-corp"
+        return response
+
+    app.mount("/assets", StaticFiles(directory=CLIENT_DIST / "assets"), name="client-assets")
+
+    @app.get("/", include_in_schema=False)
+    async def client_index():
+        return FileResponse(CLIENT_DIST / "index.html")
+
+
+def _lofi_config_message() -> dict:
+    return {
+        "type": CONFIG_MESSAGE_TYPE,
+        "models": model_entries(),
+        "ollama_host": config.ollama_base_url(),
+        "ollama_started_by_lofi": (Path(config.state_dir()) / "ollama.pid").is_file(),
+        "architecture": config.architecture(),
+        "rag": store.stats_summary(Path(config.rag_db_path()), config.rag_data_dir()),
+    }
+
+# MoQ transport with audio in/out. Serve mode (the bot is its own MoQ relay).
+# audio_out_max_buffer_ms defaults to 25s, which lets a whole TTS utterance
+# burst onto the wire at once and overflow the browser's playback ring buffer
+# (dropping the start of every bot turn) — cap it near real time instead.
 transport_params = {
-    "moq": lambda: MOQParams(audio_in_enabled=True, audio_out_enabled=True),
+    "moq": lambda: MOQParams(
+        audio_in_enabled=True,
+        audio_out_enabled=True,
+        audio_out_max_buffer_ms=config.moq_audio_ahead_ms(),
+    ),
 }
+
+
+GREETING_SETTLE_SECS = 0.5
+
+
+async def wait_for_audio_subscriber(
+    transport, client_ready: asyncio.Event, mic_subscribed: asyncio.Event, timeout: float
+) -> bool:
+    """Hold the greeting until the browser can actually hear it, cleanly.
+
+    MoQ is live media with no replay: audio written before the bot's audio
+    track is open is dropped inside ``publish_audio``, and audio sent before
+    the browser subscribes to that track is never delivered. The installed
+    moq bindings (moq_rs 0.3.3) expose no subscriber signal — ``AudioProducer``
+    has no ``used()`` — so this waits on the closest real signals instead:
+    the track being open, the client's RTVI ``client-ready`` (sent only after
+    the browser has wired up its audio pipeline), and the inbound mic
+    subscription (``on_track_subscribed``). The last one matters for quality:
+    subscribing to the mic spins up Opus decode, VAD, and the browser's echo
+    canceller — mid-greeting that garbles a second of speech. Returns False
+    if a signal is still missing after ``timeout`` seconds.
+    """
+    loop = asyncio.get_running_loop()
+    deadline = loop.time() + timeout
+    while transport._client._audio_out is None:
+        if loop.time() >= deadline:
+            return False
+        await asyncio.sleep(0.05)
+    for event in (client_ready, mic_subscribed):
+        try:
+            await asyncio.wait_for(event.wait(), max(deadline - loop.time(), 0))
+        except TimeoutError:
+            return False
+    return True
 
 
 async def run_bot(transport: BaseTransport, runner_args: RunnerArguments) -> None:
     """Assemble and run the pipeline for one connected browser client (over MoQ).
-
-    Identical pipeline to bot.py/bot_web.py — the VADProcessor sits upstream of the
-    segmented Whisper STT; smart-turn comes from the user aggregator's defaults.
     """
-    vad = build_vad_processor()
-    stt = build_stt()
-    llm = build_llm()
-    tts = build_tts()
-    context = build_context()
-    user_aggregator, assistant_aggregator = build_context_aggregator(context)
+    built = build_pipeline(transport)
+    worker = PipelineWorker(built.pipeline, params=PipelineParams())
 
-    pipeline = Pipeline(
-        [
-            transport.input(),
-            vad,
-            stt,
-            user_aggregator,
-            llm,
-            tts,
-            transport.output(),
-            assistant_aggregator,
-        ]
-    )
-    worker = PipelineWorker(pipeline, params=PipelineParams())
+    client_ready = asyncio.Event()
+    mic_subscribed = asyncio.Event()
 
-    # NOTE: MoQ's handlers differ from SmallWebRTC's — on_client_connected takes only the
-    # transport, and disconnect is on_disconnected (not on_client_disconnected).
+    @transport.event_handler("on_track_subscribed")
+    async def on_track_subscribed(_transport, _track):
+        mic_subscribed.set()
+
+    @worker.rtvi.event_handler("on_client_ready")
+    async def on_client_ready(rtvi):
+        client_ready.set()
+        logger.info("RTVI client ready — sending lofi-config")
+        await rtvi.send_server_message(_lofi_config_message())
+
+    # NOTE: MoQ's handlers differ from SmallWebRTC's — they receive only the transport
+    # (no client argument).
     @transport.event_handler("on_client_connected")
     async def on_client_connected(_transport):
-        logger.info("MoQ client subscribed — greeting")
+        timeout = config.moq_subscriber_timeout()
+        logger.info("MoQ client connected — waiting for its audio subscription")
+        if not await wait_for_audio_subscriber(transport, client_ready, mic_subscribed, timeout):
+            logger.warning(
+                f"no audio subscriber confirmed after {timeout}s — greeting may be clipped"
+            )
+        await asyncio.sleep(GREETING_SETTLE_SECS)
+        logger.info("greeting")
         await worker.queue_frames([TTSSpeakFrame(config.greeting())])
+
+    # A browser tab closing surfaces as the peer's broadcast going away
+    # (on_client_disconnected, new in Pipecat 1.7); the whole MoQ session ending
+    # fires on_disconnected. End the bot session on either.
+    @transport.event_handler("on_client_disconnected")
+    async def on_client_disconnected(_transport):
+        logger.info("MoQ client disconnected — ending session")
+        await worker.cancel()
 
     @transport.event_handler("on_disconnected")
     async def on_disconnected(_transport):
-        logger.info("MoQ client disconnected — ending session")
+        logger.info("MoQ session ended — ending session")
         await worker.cancel()
 
     @transport.event_handler("on_error")
@@ -109,11 +196,12 @@ async def bot(runner_args: RunnerArguments) -> None:
 
 
 if __name__ == "__main__":
-    # Fail fast if the local LLM isn't ready, then hand off to the dev runner, which serves
-    # the browser client + MoQ relay on http://localhost:7860 (pick "Media over QUIC").
     _configure_logging()
     _preflight_llm(config.llm_model(), config.ollama_base_url())
+    _preflight_stt()
+    _preflight_rag()
 
-    from pipecat.runner.run import main
+    from pipecat.runner.run import app, main
 
+    _serve_client_dist(app)
     main()

@@ -1,0 +1,204 @@
+"""Tests for the tool wiring in build_pipeline: the conversation model is
+offered `ask_financial_records` exactly when an index exists, and no tools at
+all when it doesn't. Replaces tests/test_pipeline_rag.py.
+
+The STT/LLM/TTS builders and the VAD stage are stubbed — this asserts the shape
+of the context, not that models load.
+"""
+
+import shutil
+from pathlib import Path
+from types import SimpleNamespace
+
+import pytest
+from pipecat.processors.aggregators.llm_context import is_given
+from pipecat.processors.frame_processor import FrameProcessor
+
+import ingest
+import pipeline
+
+FIXTURES = Path(__file__).parent / "fixtures"
+TRANSACTIONS_CSV = FIXTURES / "transactions-small.csv"
+
+
+@pytest.fixture
+def db(tmp_path):
+    data_dir = tmp_path / "data"
+    data_dir.mkdir()
+    shutil.copy(TRANSACTIONS_CSV, data_dir / "transactions.csv")
+    shutil.copy(FIXTURES / "note.txt", data_dir / "note.txt")
+    db_path = tmp_path / "lofi.db"
+    ingest.ingest(data_dir, db_path, ingest.FakeEmbedder())
+    return db_path
+
+
+@pytest.fixture
+def stub_services(monkeypatch):
+    for name in ("build_stt", "build_llm", "build_tts", "build_vad_processor"):
+        monkeypatch.setattr(pipeline, name, lambda: FrameProcessor())
+
+
+def fake_transport():
+    return SimpleNamespace(input=FrameProcessor, output=FrameProcessor)
+
+
+def tool_names(context) -> list[str]:
+    if not is_given(context.tools):
+        return []
+    return [tool.name for tool in context.tools.standard_tools]
+
+
+def test_index_present_offers_the_four_retrieval_tools(db, monkeypatch, stub_services):
+    monkeypatch.setenv("LOFI_ARCHITECTURE", "cascade")
+    monkeypatch.setenv("LOFI_RAG_DB", str(db))
+    built = pipeline.build_pipeline(fake_transport())
+    assert sorted(tool_names(built.context)) == [
+        "aggregate", "filter_rows", "lookup", "semantic_search",
+    ]
+
+
+def test_system_prompt_is_grounded_when_index_present(db, monkeypatch, stub_services):
+    monkeypatch.setenv("LOFI_ARCHITECTURE", "cascade")
+    import datetime
+
+    import store
+    from prompts import financial_advisor
+
+    monkeypatch.setenv("LOFI_RAG_DB", str(db))
+    built = pipeline.build_pipeline(fake_transport())
+    content = built.context.messages[0]["content"]
+    assert "Today's date is" in content
+    first, last = store.date_range(db)
+    assert f"The transaction records run from {first} to {last}." in content
+    assert "The transaction categories are: " in content
+    assert content.startswith(financial_advisor.BASE_PROMPT)
+    pinned = financial_advisor.system_prompt(datetime.date(2026, 10, 12), (first, last))
+    assert pinned.startswith(financial_advisor.BASE_PROMPT)
+    assert pinned.endswith(f"Today's date is 2026-10-12. The transaction records run from {first} to {last}.")
+
+
+def test_no_index_offers_no_tools(tmp_path, monkeypatch, stub_services):
+    monkeypatch.setenv("LOFI_RAG_DB", str(tmp_path / "missing" / "lofi.db"))
+    built = pipeline.build_pipeline(fake_transport())
+    assert tool_names(built.context) == []
+
+
+def test_pipeline_still_builds_without_an_index(tmp_path, monkeypatch, stub_services):
+    monkeypatch.setenv("LOFI_RAG_DB", str(tmp_path / "missing" / "lofi.db"))
+    built = pipeline.build_pipeline(fake_transport())
+    assert built.pipeline is not None
+    assert built.context.messages[0]["role"] == "system"
+
+
+def test_built_bot_exposes_llm_and_tts(db, monkeypatch, stub_services):
+    monkeypatch.setenv("LOFI_RAG_DB", str(db))
+    built = pipeline.build_pipeline(fake_transport())
+    assert built.llm is not None
+    assert built.tts is not None
+
+
+class EventfulLLM(FrameProcessor):
+    """FrameProcessor that, like a real LLM service, has the function-call event."""
+
+    def __init__(self):
+        super().__init__()
+        self._register_event_handler("on_function_calls_started")
+
+
+def test_filler_registered_on_function_calls_started(db, monkeypatch, stub_services):
+    monkeypatch.setenv("LOFI_RAG_DB", str(db))
+    monkeypatch.setattr(pipeline, "build_llm", EventfulLLM)
+    built = pipeline.build_pipeline(fake_transport())
+    assert built.llm._event_handlers["on_function_calls_started"].handlers
+
+
+def test_filler_phrase_is_short_spoken_text(db):
+    assert pipeline.FILLER_PHRASE.endswith(".")
+    assert "{" not in pipeline.FILLER_PHRASE
+
+
+def test_filler_handler_pushes_busy_message_and_filler(db, monkeypatch, stub_services):
+    import asyncio
+
+    from pipecat.frames.frames import TTSSpeakFrame
+    from pipecat.processors.frameworks.rtvi.frames import RTVIServerMessageFrame
+
+    class RecordingLLM(EventfulLLM):
+        def __init__(self):
+            super().__init__()
+            self.frames = []
+
+        async def push_frame(self, frame, *args, **kwargs):
+            self.frames.append(frame)
+
+    class RecordingTTS(FrameProcessor):
+        def __init__(self):
+            super().__init__()
+            self.queued = []
+
+        async def queue_frame(self, frame, *args, **kwargs):
+            self.queued.append(frame)
+
+    monkeypatch.setenv("LOFI_RAG_DB", str(db))
+    monkeypatch.setattr(pipeline, "build_llm", RecordingLLM)
+    monkeypatch.setattr(pipeline, "build_tts", RecordingTTS)
+    built = pipeline.build_pipeline(fake_transport())
+    handler = built.llm._event_handlers["on_function_calls_started"].handlers[0]
+    asyncio.run(handler(built.llm, []))
+
+    busy = [f for f in built.llm.frames if isinstance(f, RTVIServerMessageFrame)]
+    assert busy and busy[0].data == {"type": pipeline.BUSY_MESSAGE_TYPE}
+    assert [f.text for f in built.tts.queued if isinstance(f, TTSSpeakFrame)] == [
+        pipeline.FILLER_PHRASE
+    ]
+
+
+def test_bot_entry_points_import_cleanly():
+    import importlib
+
+    for module in ("bot", "bot_moq"):
+        importlib.import_module(module)
+
+
+def test_llm_service_disables_reasoning():
+    import services
+
+    llm = services.build_llm()
+    assert llm._settings.extra == {"extra_body": {"reasoning_effort": "none"}}
+
+
+def test_split_architecture_offers_the_delegate_tool(db, monkeypatch, stub_services):
+    from prompts import financial_advisor
+
+    monkeypatch.setenv("LOFI_RAG_DB", str(db))
+    monkeypatch.setenv("LOFI_ARCHITECTURE", "split")
+    built = pipeline.build_pipeline(fake_transport())
+    assert tool_names(built.context) == ["ask_financial_records"]
+    assert built.context.messages[0]["content"] == financial_advisor.FRONT_PROMPT
+
+
+def test_invalid_architecture_exits_with_guidance(db, monkeypatch, stub_services):
+    monkeypatch.setenv("LOFI_RAG_DB", str(db))
+    monkeypatch.setenv("LOFI_ARCHITECTURE", "sandwich")
+    with pytest.raises(SystemExit):
+        pipeline.build_pipeline(fake_transport())
+
+
+def test_pipeline_includes_the_silence_watchdog(db, monkeypatch, stub_services):
+    from silence_watchdog import SilenceWatchdog
+
+    monkeypatch.setenv("LOFI_RAG_DB", str(db))
+    built = pipeline.build_pipeline(fake_transport())
+    assert any(isinstance(p, SilenceWatchdog) for p in built.pipeline._processors)
+
+
+def test_observer_architecture_wires_the_observer_and_no_tools(db, monkeypatch, stub_services):
+    from observer_processor import RecordsObserver
+    from prompts import financial_advisor
+
+    monkeypatch.setenv("LOFI_RAG_DB", str(db))
+    monkeypatch.setenv("LOFI_ARCHITECTURE", "observer")
+    built = pipeline.build_pipeline(fake_transport())
+    assert tool_names(built.context) == []
+    assert built.context.messages[0]["content"] == financial_advisor.OBSERVER_FRONT_PROMPT
+    assert any(isinstance(p, RecordsObserver) for p in built.pipeline._processors)

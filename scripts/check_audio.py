@@ -25,7 +25,12 @@ import time
 try:
     import pyaudio
 except ImportError:
-    sys.exit("pyaudio not installed. Run: uv sync  (or: uv add pyaudio)")
+    sys.exit(
+        "pyaudio not installed — it is an opt-in extra (needs PortAudio).\n"
+        "  macOS:  brew install portaudio\n"
+        "  Debian: sudo apt install portaudio19-dev\n"
+        "  then:   uv sync --extra local-audio"
+    )
 
 RATE = 16000
 CHANNELS = 1
@@ -45,7 +50,7 @@ def list_devices(pa: "pyaudio.PyAudio") -> None:
     try:
         default = pa.get_default_input_device_info()
         print(f"\nDefault input device: [{default['index']}] {default['name']}")
-        print("(Set INPUT_DEVICE_INDEX in .env to override which mic bot.py uses.)")
+        print("(Set LOFI_INPUT_DEVICE_INDEX in .env to override which mic bot.py uses.)")
     except Exception as exc:  # noqa: BLE001
         print(f"\n!! No default input device: {exc}")
 

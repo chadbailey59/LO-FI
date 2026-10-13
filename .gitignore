@@ -4,21 +4,26 @@ models/
 # Python virtual environment
 .venv/
 
+# lofi.sh runtime state (pidfiles for the processes lofi started)
+.lofi/
+
+# User documents indexed by RAG
+data/
+
 # Local config (copied from env.example; config only, never secrets)
 .env
-
-# macOS
-.DS_Store
-
-# Local assistant settings
-.claude/
+.env.bak
 
 # Python bytecode caches
 __pycache__/
 *.pyc
 
+# Scratch/temp
+_verify_tmp.py
+
 # Runtime + debug logs
 *.log
+ralph/logs/
 
-.superpowers
-docs/
+# Ralph-loop runtime progress journal (regenerated on each run)
+PROGRESS.md

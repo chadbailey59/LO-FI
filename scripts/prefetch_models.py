@@ -1,93 +1,167 @@
 #!/usr/bin/env python
-"""prefetch_models.py — one-time ONLINE warm-up.
+"""prefetch_models.py — one-time ONLINE warm-up for EVERY default model.
 
-The whole point of ``LO-FI`` is a bot that runs 100% offline. But four of its
-model-backed components fetch their weights from the network on first use:
-
-    * Whisper-MLX (STT)  — downloads from the Hugging Face hub on first transcribe.
-    * Kokoro (TTS)       — downloads the ONNX model + voices bundle on construction.
-    * Silero VAD         — *bundled inside the pipecat package* (no download).
-    * Smart Turn v3      — *bundled inside the pipecat package* (no download).
-
-This script forces the two that DO hit the network to download NOW, while you
-still have connectivity, and it steers every cache into ``./models/`` (gitignored)
-so all checkpoints live next to the code. Run it once:
+The whole point of ``lofi`` is a bot that runs 100% offline. This script
+downloads everything the bot needs NOW, while you still have connectivity, and
+steers every cache into ``$LOFI_MODEL_DIR`` (gitignored) so all checkpoints
+live next to the code. Run it once:
 
     uv run python scripts/prefetch_models.py
 
 After it finishes you can turn off Wi-Fi and ``uv run bot.py`` will find every
-weight locally. (Ollama's LLM is pulled separately by ``scripts/run_ollama.sh``.)
+weight locally. What it fetches:
+
+    * Ollama LLM + embed model — pulled via ``ollama pull`` (temporary
+      ``ollama serve`` is started if none is running).
+    * STT — whichever engine LOFI_STT_ENGINE selects: Whisper-MLX snapshot on
+      Apple Silicon, faster-whisper / Moonshine weights elsewhere.
+    * Kokoro (TTS)       — ONNX model + voices bundle.
+    * Silero VAD         — *bundled inside the pipecat package* (no download).
+    * Smart Turn v3      — *bundled inside the pipecat package* (no download).
 
 Config knobs (env or ./.env, all optional — sensible defaults):
-    HF_HOME              Hugging Face cache root      (default ./models/huggingface)
-    WHISPER_MODEL        MLXModel member name         (default LARGE_V3_TURBO)
-    KOKORO_MODEL_PATH    Kokoro ONNX destination      (default ./models/kokoro/kokoro-v1.0.onnx)
-    KOKORO_VOICES_PATH   Kokoro voices destination    (default ./models/kokoro/voices-v1.0.bin)
+    LOFI_MODEL_DIR            the one directory all models go in  (default ./models)
+    LOFI_LLM_MODEL            Ollama tag for the pipeline LLM     (default qwen2.5:14b)
+    LOFI_EMBED_MODEL          Ollama tag for RAG embeddings       (default nomic-embed-text)
+    LOFI_STT_ENGINE           whisper_mlx | faster_whisper | moonshine
+    LOFI_WHISPER_MODEL        MLXModel member name                (default LARGE_V3_TURBO)
+    HF_HOME                    HF cache root       (default $LOFI_MODEL_DIR/huggingface)
+    LOFI_KOKORO_MODEL_PATH    Kokoro ONNX dest.   (default $LOFI_MODEL_DIR/kokoro/kokoro-v1.0.onnx)
+    LOFI_KOKORO_VOICES_PATH   Kokoro voices dest. (default $LOFI_MODEL_DIR/kokoro/voices-v1.0.bin)
 """
 
 from __future__ import annotations
 
 import os
+import shutil
+import subprocess
+import sys
+import time
+import urllib.error
+import urllib.request
 from pathlib import Path
 
-# --- Resolve repo-local cache locations and export them BEFORE importing any
-#     model library, so Hugging Face / MLX / Kokoro see them at import time. ----
-REPO_ROOT = Path(__file__).resolve().parent.parent
-MODELS_DIR = REPO_ROOT / "models"
+# --- Resolve cache locations BEFORE importing any model library, so Hugging
+#     Face / MLX / Kokoro see them at import time. -------------------------------
+# Importing config does all of it: loads ./.env, resolves LOFI_MODEL_DIR, and
+# setdefaults HF_HOME / KOKORO_* / LOFI_PIPER_DOWNLOAD_DIR / OLLAMA_MODELS. Sharing
+# that one resolver is what guarantees the prefetch writes exactly where the bot
+# later reads — the whole point of the warm-up.
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-# Load ./.env first (if present) so user overrides win, then fill defaults.
-try:
-    from dotenv import load_dotenv
-
-    load_dotenv(REPO_ROOT / ".env")
-except Exception:  # python-dotenv should be installed, but never hard-fail here.
-    pass
-
-os.environ.setdefault("HF_HOME", str(MODELS_DIR / "huggingface"))
-
-KOKORO_DIR = MODELS_DIR / "kokoro"
-KOKORO_MODEL_PATH = Path(
-    os.environ.setdefault("KOKORO_MODEL_PATH", str(KOKORO_DIR / "kokoro-v1.0.onnx"))
-)
-KOKORO_VOICES_PATH = Path(
-    os.environ.setdefault("KOKORO_VOICES_PATH", str(KOKORO_DIR / "voices-v1.0.bin"))
-)
-WHISPER_MODEL = os.environ.setdefault("WHISPER_MODEL", "LARGE_V3_TURBO")
-
-# Make sure the target directories exist before anything writes into them.
-Path(os.environ["HF_HOME"]).mkdir(parents=True, exist_ok=True)
-KOKORO_DIR.mkdir(parents=True, exist_ok=True)
+import config  # noqa: E402
 
 from loguru import logger  # noqa: E402  (import after env is set, on purpose)
 
+OLLAMA_SERVE_TIMEOUT_SECS = 30
 
-def prefetch_whisper_mlx() -> None:
-    """Force the Whisper-MLX weights into the HF cache (HF_HOME).
 
-    ``WhisperSTTServiceMLX`` loads lazily (its ``_load`` is a no-op) and only
-    downloads on the first transcription, so instantiating it does nothing. We
-    resolve the model's Hugging Face repo id from the ``MLXModel`` enum and pull
-    a full snapshot up front instead.
+def ollama_tags() -> list[str]:
+    """Ollama tags the bot serves: pipeline LLM + embed model, deduped."""
+    tags = [config.llm_model(), config.embed_model()]
+    return list(dict.fromkeys(tags))
+
+
+def _ollama_server_up() -> bool:
+    """Probe the native API's /api/tags route."""
+    url = config.ollama_api_url().rstrip("/") + "/api/tags"
+    try:
+        with urllib.request.urlopen(url, timeout=2):
+            return True
+    except (urllib.error.URLError, OSError):
+        return False
+
+
+def prefetch_ollama_models() -> None:
+    """Pull the LLM + embed model into the Ollama store (OLLAMA_MODELS).
+
+    Reuses a running Ollama server when one is reachable; otherwise starts a
+    temporary ``ollama serve`` for the pulls and stops it afterwards.
     """
-    from huggingface_hub import snapshot_download
+    if shutil.which("ollama") is None:
+        raise SystemExit(
+            "\n✖ 'ollama' not found on PATH\n"
+            "  Install it from https://ollama.com, then re-run this script.\n"
+        )
 
-    from pipecat.services.whisper.stt import MLXModel
+    # ollama CLI dials OLLAMA_HOST; derive it from the same URL the bot uses.
+    host = config.ollama_api_url().removeprefix("http://").removeprefix("https://")
+    os.environ.setdefault("OLLAMA_HOST", host)
+
+    server: subprocess.Popen | None = None
+    if _ollama_server_up():
+        logger.info("Ollama: server already running — pulling into it.")
+    else:
+        logger.info(f"Ollama: starting temporary server (store → {os.environ['OLLAMA_MODELS']}) ...")
+        server = subprocess.Popen(
+            ["ollama", "serve"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
+        )
+        deadline = time.monotonic() + OLLAMA_SERVE_TIMEOUT_SECS
+        while not _ollama_server_up():
+            if time.monotonic() > deadline or server.poll() is not None:
+                raise SystemExit(
+                    "\n✖ temporary 'ollama serve' did not become ready\n"
+                    "  Start the server yourself and re-run:  bash scripts/run_ollama.sh\n"
+                )
+            time.sleep(0.5)
 
     try:
-        repo_id = MLXModel[WHISPER_MODEL].value
-    except KeyError as exc:
-        valid = ", ".join(m.name for m in MLXModel)
-        raise SystemExit(
-            f"WHISPER_MODEL='{WHISPER_MODEL}' is not a valid MLXModel. Choose one of: {valid}"
-        ) from exc
+        for tag in ollama_tags():
+            logger.info(f"Ollama: pulling '{tag}' ...")
+            try:
+                subprocess.run(["ollama", "pull", tag], check=True)
+            except subprocess.CalledProcessError as exc:
+                raise SystemExit(
+                    f"\n✖ 'ollama pull {tag}' failed (exit {exc.returncode})\n"
+                    "  Check the tag and your connection, then re-run this script.\n"
+                ) from exc
+            logger.success(f"Ollama: '{tag}' ready.")
+    finally:
+        if server is not None:
+            server.terminate()
+            server.wait(timeout=10)
+            logger.info("Ollama: temporary server stopped.")
 
-    logger.info(f"Whisper-MLX: downloading '{repo_id}' → {os.environ['HF_HOME']} ...")
-    path = snapshot_download(repo_id=repo_id)
-    logger.success(f"Whisper-MLX ready: {path}")
+
+def prefetch_stt() -> None:
+    """Force the configured STT engine's weights into the HF cache (HF_HOME).
+
+    ``WhisperSTTServiceMLX`` loads lazily (its ``_load`` is a no-op) and only
+    downloads on the first transcription, so for whisper_mlx we resolve the
+    model's Hugging Face repo id from the ``MLXModel`` enum and pull a full
+    snapshot up front. faster-whisper and Moonshine load (and download) in
+    their constructors, so ``services.build_stt()`` is the warm-up.
+    """
+    engine = config.stt_engine()
+
+    if engine == "whisper_mlx":
+        from huggingface_hub import snapshot_download
+
+        from pipecat.services.whisper.stt import MLXModel
+
+        whisper_model = config.whisper_model()
+        try:
+            repo_id = MLXModel[whisper_model].value
+        except KeyError as exc:
+            valid = ", ".join(m.name for m in MLXModel)
+            raise SystemExit(
+                f"LOFI_WHISPER_MODEL='{whisper_model}' is not a valid MLXModel. Choose one of: {valid}"
+            ) from exc
+
+        logger.info(f"Whisper-MLX: downloading '{repo_id}' → {os.environ['HF_HOME']} ...")
+        path = snapshot_download(repo_id=repo_id)
+        logger.success(f"Whisper-MLX ready: {path}")
+        return
+
+    import services
+
+    logger.info(f"STT ({engine}): downloading weights via service construction ...")
+    services.build_stt()
+    logger.success(f"STT ({engine}) ready.")
 
 
 def prefetch_kokoro() -> None:
-    """Force Kokoro's ONNX model + voices bundle onto disk under ./models/kokoro.
+    """Force Kokoro's ONNX model + voices bundle onto disk under $LOFI_MODEL_DIR/kokoro.
 
     ``KokoroTTSService.__init__`` calls ``_ensure_model_files(model_path, voices_path)``,
     which downloads both files if they are missing, then loads them. Passing our
@@ -95,14 +169,11 @@ def prefetch_kokoro() -> None:
     """
     from pipecat.services.kokoro.tts import KokoroTTSService
 
-    logger.info(
-        f"Kokoro: ensuring model → {KOKORO_MODEL_PATH} and voices → {KOKORO_VOICES_PATH} ..."
-    )
+    model_path = config.kokoro_model_path()
+    voices_path = config.kokoro_voices_path()
+    logger.info(f"Kokoro: ensuring model → {model_path} and voices → {voices_path} ...")
     # Construction triggers the download + a load of the ONNX model.
-    KokoroTTSService(
-        model_path=str(KOKORO_MODEL_PATH),
-        voices_path=str(KOKORO_VOICES_PATH),
-    )
+    KokoroTTSService(model_path=model_path, voices_path=voices_path)
     logger.success("Kokoro ready.")
 
 
@@ -126,14 +197,16 @@ def verify_bundled_models() -> None:
 
 
 def main() -> None:
-    logger.info(f"Prefetching models into {MODELS_DIR} (HF_HOME={os.environ['HF_HOME']})")
-    prefetch_whisper_mlx()
+    models_dir = Path(config.model_dir())
+    Path(os.environ["HF_HOME"]).mkdir(parents=True, exist_ok=True)
+    Path(config.kokoro_model_path()).parent.mkdir(parents=True, exist_ok=True)
+
+    logger.info(f"Prefetching models into {models_dir} (HF_HOME={os.environ['HF_HOME']})")
+    prefetch_ollama_models()
+    prefetch_stt()
     prefetch_kokoro()
     verify_bundled_models()
-    logger.success(
-        "All local models prefetched. You can now run the bot fully offline "
-        "(after `scripts/run_ollama.sh` has pulled the LLM)."
-    )
+    logger.success("All models prefetched. You can now run the bot fully offline.")
 
 
 if __name__ == "__main__":

@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>lofi</title>
+  </head>
+  <body>
+    <header>
+      <h1>lofi</h1>
+      <div id="controls">
+        <button id="connect">Connect</button>
+        <button id="mute" disabled>Mute</button>
+        <span id="connection-state">disconnected</span>
+      </div>
+    </header>
+    <div id="webtransport-banner" hidden>
+      This browser can't open a WebTransport connection, which lofi needs to
+      stream audio. Use a recent Chrome or Edge.
+    </div>
+    <main id="app">
+      <section id="transcript" aria-label="conversation transcript"></section>
+      <form id="composer">
+        <input
+          id="text-input"
+          type="text"
+          placeholder="Type a message"
+          autocomplete="off"
+          disabled
+        />
+        <button id="send" type="submit" disabled>Send</button>
+      </form>
+      <aside id="panels">
+        <section id="config-panel" aria-label="what's running">
+          <h2>what's running</h2>
+          <pre id="config-lines">connect to see the running config</pre>
+        </section>
+        <section id="rag-panel" aria-label="retrieved context">
+          <h2>retrieved context</h2>
+          <div id="rag-turns">ask about your records — retrieved context shows up here</div>
+        </section>
+      </aside>
+    </main>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
