@@ -37,6 +37,30 @@ def test_websocket_transport_params_use_protobuf_serializer():
     assert isinstance(ws.serializer, ProtobufFrameSerializer)
 
 
+def test_websocket_serializer_skips_kinds_the_js_client_cannot_parse():
+    # @pipecat-ai/websocket-transport deserializes only "audio" and "message"
+    # oneofKinds — anything else throws "Unknown frame kind" in the browser.
+    from pipecat.frames.frames import (
+        InterruptionFrame,
+        OutputAudioRawFrame,
+        TextFrame,
+        TranscriptionFrame,
+    )
+
+    serializer = bot_moq.build_transport_params()["websocket"]().serializer
+
+    async def run(frame):
+        return await serializer.serialize(frame)
+
+    assert asyncio.run(run(TextFrame(text="hi"))) is None
+    assert asyncio.run(run(TranscriptionFrame(text="hi", user_id="u", timestamp="t"))) is None
+    assert asyncio.run(run(InterruptionFrame())) is None
+    audio = asyncio.run(
+        run(OutputAudioRawFrame(audio=b"\x00\x00", sample_rate=16000, num_channels=1))
+    )
+    assert audio is not None
+
+
 class FakeTransport:
     def __init__(self):
         self.handlers = {}

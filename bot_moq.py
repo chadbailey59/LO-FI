@@ -104,14 +104,27 @@ def build_transport_params() -> dict:
     # boundary that forwards TCP, including Windows↔WSL2 where both QUIC and
     # WebRTC's UDP media (and aiortc's no-ICE-TCP) are dead ends.
     def websocket_params():
+        from pipecat.frames.frames import InterruptionFrame, TextFrame
         from pipecat.serializers.protobuf import ProtobufFrameSerializer
         from pipecat.transports.websocket.fastapi import FastAPIWebsocketParams
+
+        class JsClientProtobufSerializer(ProtobufFrameSerializer):
+            """The JS websocket client parses only "audio" and "message" frame
+            kinds — anything else logs "Unknown frame kind" in the browser, so
+            skip text/transcription/interruption at the source. (Transcripts
+            and bot text reach the client as RTVI "message" frames.)"""
+
+            async def serialize(self, frame):
+                # TranscriptionFrame subclasses TextFrame.
+                if isinstance(frame, (TextFrame, InterruptionFrame)):
+                    return None
+                return await super().serialize(frame)
 
         return FastAPIWebsocketParams(
             audio_in_enabled=True,
             audio_out_enabled=True,
             add_wav_header=False,
-            serializer=ProtobufFrameSerializer(),
+            serializer=JsClientProtobufSerializer(),
         )
 
     params["websocket"] = websocket_params
