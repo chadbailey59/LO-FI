@@ -96,6 +96,39 @@ git clone git@github.com:vipyne/LO-FI.git && cd LO-FI
 uv sync                       # creates .venv and installs everything (Python 3.12)
 ```
 
+Starting from a bare Linux box or a fresh Windows WSL2 (Ubuntu) shell — no git,
+no uv, no Ollama yet? This is the whole setup:
+
+```bash
+# deps
+sudo apt-get update && sudo apt-get install -y git curl 
+curl -LsSf https://astral.sh/uv/install.sh | sh
+source ~/.local/bin/env        # or restart the shell so `uv` is on PATH
+curl -fsSL https://ollama.com/install.sh | sh
+
+# code
+git clone https://github.com/vipyne/LO-FI.git && cd LO-FI
+uv sync
+```
+
+(On WSL2, clone into the Linux filesystem — `~/`, not `/mnt/c/…`.)
+
+> [!WARNING]
+> **Windows/WSL2 + MoQ (2026-10-13):** a Windows browser cannot reach the
+> bot's MoQ endpoint inside WSL2 — WebTransport's QUIC/UDP never crosses the
+> Windows↔WSL boundary (verified on real hardware in NAT mode, in
+> `networkingMode=mirrored` with Hyper-V firewall inbound allowed, and with a
+> raw UDP loopback probe). **Use the WebRTC transport instead:**
+>
+> ```bash
+> uv sync --extra webrtc     # one-time, inside WSL
+> BROWSER=true ./lofi.sh start
+> ```
+>
+> then open `http://localhost:7860/?transport=webrtc` from a Windows
+> Chrome/Edge. The client also falls back to WebRTC automatically when a MoQ
+> connect fails. (`BROWSER=true` suppresses the xdg-open browser spam in WSL.)
+
 That is all you need for the browser front-ends. For the headphones front-end
 (`bot.py`), PyAudio has to compile against PortAudio, so install it and opt into
 the extra:
@@ -224,9 +257,13 @@ fully offline — the browser talks to the bot over loopback, no internet):
 ./lofi.sh start    # MoQ/QUIC → open http://localhost:7860 in Chrome/Edge
 ```
 
-MoQ uses WebTransport, which Safari and Firefox don't ship yet — use Chrome or
-Edge. On Windows, run the bot inside WSL2 and open the page from a Windows
-browser.
+MoQ uses WebTransport, which Safari and Firefox don't ship yet. With the
+WebRTC extra installed (`uv sync --extra webrtc`) the same bot also serves a
+**SmallWebRTC** transport: the client picks it automatically when WebTransport
+is missing (Safari/Firefox), falls back to it when a MoQ connect fails
+(Windows/WSL2), or you can force it with `http://localhost:7860/?transport=webrtc`.
+On Windows, run the bot inside WSL2 and open the page from a Windows browser —
+see the WSL2 warning above.
 
 ---
 

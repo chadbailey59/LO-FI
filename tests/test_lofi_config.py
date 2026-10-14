@@ -1,7 +1,23 @@
 import json
+import sys
 
 import config
-from bot_moq import CONFIG_MESSAGE_TYPE, _lofi_config_message
+from bot_moq import CONFIG_MESSAGE_TYPE, _lofi_config_message, build_transport_params
+
+
+def test_transport_params_offer_moq_and_webrtc():
+    params = build_transport_params()
+    assert "moq" in params
+    assert "webrtc" in params  # aiortc installed in the dev env
+    assert params["webrtc"]().audio_in_enabled is True
+    assert params["webrtc"]().audio_out_enabled is True
+
+
+def test_webrtc_transport_omitted_without_aiortc(monkeypatch):
+    monkeypatch.setitem(sys.modules, "aiortc", None)
+    params = build_transport_params()
+    assert "moq" in params
+    assert "webrtc" not in params
 
 
 def test_config_message_reports_llm_engine(monkeypatch):

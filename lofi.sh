@@ -133,7 +133,10 @@ cmd_start() {
   session_logs | tail -n +11 | xargs rm -f
   case "$transport" in
     moq)
-      nohup uv run python bot_moq.py -t moq --host localhost --port "$LOFI_WEB_PORT" >"$bot_log" 2>&1 &
+      # No -t pin: the runner then serves every installed browser transport
+      # (MoQ always; SmallWebRTC with --extra webrtc) and the client picks per
+      # session via /start — the WebRTC fallback path needs this.
+      nohup uv run python bot_moq.py --host localhost --port "$LOFI_WEB_PORT" >"$bot_log" 2>&1 &
       ;;
     headphones)
       echo "start: launching the local-audio bot — use headphones 🎧"
@@ -227,7 +230,8 @@ cmd_help() {
   case "$1" in
     start)
       echo "usage: ./lofi.sh start [-t moq|headphones]"
-      echo "  -t, --transport   moq (browser over Media-over-QUIC, the default)"
+      echo "  -t, --transport   moq (browser bot, the default — serves MoQ, plus WebRTC"
+      echo "                    when installed via 'uv sync --extra webrtc')"
       echo "                    headphones (local mic/speakers via PyAudio — wear headphones)"
       echo "  brings up Ollama first if nothing answers on \$OLLAMA_HOST (and records its pid)" ;;
     stop)

@@ -89,13 +89,32 @@ def _lofi_config_message() -> dict:
 # audio_out_max_buffer_ms defaults to 25s, which lets a whole TTS utterance
 # burst onto the wire at once and overflow the browser's playback ring buffer
 # (dropping the start of every bot turn) — cap it near real time instead.
-transport_params = {
-    "moq": lambda: MOQParams(
+def build_transport_params() -> dict:
+    """Transports the runner offers via /start: MoQ always; SmallWebRTC when
+    aiortc is installed (uv sync --extra webrtc) — the fallback for Windows/WSL2
+    (QUIC/UDP can't cross the Windows↔WSL boundary) and non-WebTransport browsers."""
+    params = {
+        "moq": lambda: MOQParams(
+            audio_in_enabled=True,
+            audio_out_enabled=True,
+            audio_out_max_buffer_ms=config.moq_audio_ahead_ms(),
+        ),
+    }
+    try:
+        import aiortc  # noqa: F401
+    except ImportError:
+        logger.info("webrtc transport not offered — enable with: uv sync --extra webrtc")
+        return params
+    from pipecat.transports.base_transport import TransportParams
+
+    params["webrtc"] = lambda: TransportParams(
         audio_in_enabled=True,
         audio_out_enabled=True,
-        audio_out_max_buffer_ms=config.moq_audio_ahead_ms(),
-    ),
-}
+    )
+    return params
+
+
+transport_params = build_transport_params()
 
 
 GREETING_SETTLE_SECS = 0.5
@@ -132,27 +151,19 @@ async def wait_for_audio_subscriber(
     return True
 
 
-async def run_bot(transport: BaseTransport, runner_args: RunnerArguments) -> None:
-    """Assemble and run the pipeline for one connected browser client (over MoQ).
-    """
-    built = build_pipeline(transport)
-    worker = PipelineWorker(built.pipeline, params=PipelineParams())
+def _transport_kind(runner_args) -> str:
+    """Which transport a runner-args object selects: the /api/offer path hands
+    SmallWebRTCRunnerArguments to bot(); everything else here is MoQ serve mode."""
+    return "webrtc" if type(runner_args).__name__ == "SmallWebRTCRunnerArguments" else "moq"
 
-    client_ready = asyncio.Event()
-    mic_subscribed = asyncio.Event()
 
+def _register_moq_handlers(transport, worker, client_ready, mic_subscribed) -> None:
+    # NOTE: MoQ's handlers differ from SmallWebRTC's — they receive only the transport
+    # (no client argument).
     @transport.event_handler("on_track_subscribed")
     async def on_track_subscribed(_transport, _track):
         mic_subscribed.set()
 
-    @worker.rtvi.event_handler("on_client_ready")
-    async def on_client_ready(rtvi):
-        client_ready.set()
-        logger.info("RTVI client ready — sending lofi-config")
-        await rtvi.send_server_message(_lofi_config_message())
-
-    # NOTE: MoQ's handlers differ from SmallWebRTC's — they receive only the transport
-    # (no client argument).
     @transport.event_handler("on_client_connected")
     async def on_client_connected(_transport):
         timeout = config.moq_subscriber_timeout()
@@ -182,14 +193,52 @@ async def run_bot(transport: BaseTransport, runner_args: RunnerArguments) -> Non
     async def on_error(_transport, message, _exception):
         logger.error(f"MoQ error: {message}")
 
+
+def _register_webrtc_handlers(transport, worker) -> None:
+    # SmallWebRTC handlers receive (transport, client). Audio flows as soon as
+    # the peer connection is up — no subscriber gate needed.
+    @transport.event_handler("on_client_connected")
+    async def on_client_connected(_transport, _client):
+        await asyncio.sleep(GREETING_SETTLE_SECS)
+        logger.info("WebRTC client connected — greeting")
+        await worker.queue_frames([TTSSpeakFrame(config.greeting())])
+
+    @transport.event_handler("on_client_disconnected")
+    async def on_client_disconnected(_transport, _client):
+        logger.info("WebRTC client disconnected — ending session")
+        await worker.cancel()
+
+
+async def run_bot(transport: BaseTransport, runner_args: RunnerArguments) -> None:
+    """Assemble and run the pipeline for one connected browser client."""
+    built = build_pipeline(transport)
+    worker = PipelineWorker(built.pipeline, params=PipelineParams())
+
+    client_ready = asyncio.Event()
+    mic_subscribed = asyncio.Event()
+
+    @worker.rtvi.event_handler("on_client_ready")
+    async def on_client_ready(rtvi):
+        client_ready.set()
+        logger.info("RTVI client ready — sending lofi-config")
+        await rtvi.send_server_message(_lofi_config_message())
+
+    if _transport_kind(runner_args) == "webrtc":
+        _register_webrtc_handlers(transport, worker)
+    else:
+        _register_moq_handlers(transport, worker, client_ready, mic_subscribed)
+
     # MOQInputTransport auto-connects to the relay when the pipeline starts, so we don't
     # dial transport.connect() here; we disconnect explicitly on shutdown.
+    # SmallWebRTCTransport has no disconnect() — its peer connection closes itself.
     runner = WorkerRunner(handle_sigint=runner_args.handle_sigint)
     try:
         await runner.add_workers(worker)
         await runner.run()
     finally:
-        await transport.disconnect()
+        disconnect = getattr(transport, "disconnect", None)
+        if disconnect is not None:
+            await disconnect()
 
 
 async def bot(runner_args: RunnerArguments) -> None:

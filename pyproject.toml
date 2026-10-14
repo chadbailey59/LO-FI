@@ -30,6 +30,11 @@ dependencies = [
 [project.optional-dependencies]
 moonshine = ["pipecat-ai[moonshine]"]
 piper = ["pipecat-ai[piper]"]
+# SmallWebRTC browser transport (aiortc). The fallback path for Windows/WSL2
+# attendees (MoQ's QUIC/UDP cannot cross the Windows↔WSL boundary) and for
+# browsers without WebTransport (Safari, Firefox).
+#   uv sync --extra webrtc
+webrtc = ["pipecat-ai[webrtc]"]
 # bot.py (LocalAudioTransport) only. PyAudio ships wheels for Windows *only*, so
 # on macOS/Linux it compiles against PortAudio — the one dependency here that
 # needs a C toolchain. Keeping it out of the base install means a bare
