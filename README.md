@@ -118,16 +118,20 @@ uv sync
 > bot's MoQ endpoint inside WSL2 — WebTransport's QUIC/UDP never crosses the
 > Windows↔WSL boundary (verified on real hardware in NAT mode, in
 > `networkingMode=mirrored` with Hyper-V firewall inbound allowed, and with a
-> raw UDP loopback probe). **Use the WebRTC transport instead:**
+> raw UDP loopback probe). WebRTC's media is UDP-first too (and aiortc has no
+> ICE-TCP), so it hits the same wall. **Use the WebSocket transport — pure
+> TCP, crosses the boundary like the web page itself does:**
 >
 > ```bash
-> uv sync --extra webrtc     # one-time, inside WSL
-> BROWSER=true ./lofi.sh start
+> ./lofi.sh start
 > ```
 >
-> then open `http://localhost:7860/?transport=webrtc` from a Windows
-> Chrome/Edge. The client also falls back to WebRTC automatically when a MoQ
-> connect fails. (`BROWSER=true` suppresses the xdg-open browser spam in WSL.)
+> then open `http://localhost:7860/?transport=websocket` from a Windows
+> Chrome/Edge. With no param, the client walks the fallback chain
+> (moq → webrtc → websocket) by itself — it just takes a few extra seconds of
+> failed attempts to get there. On WSL, `lofi.sh` skips its browser auto-open
+> (the right browser is on the Windows side); elsewhere, `LOFI_OPEN_BROWSER=0`
+> disables it.
 
 That is all you need for the browser front-ends. For the headphones front-end
 (`bot.py`), PyAudio has to compile against PortAudio, so install it and opt into
@@ -257,13 +261,16 @@ fully offline — the browser talks to the bot over loopback, no internet):
 ./lofi.sh start    # MoQ/QUIC → open http://localhost:7860 in Chrome/Edge
 ```
 
-MoQ uses WebTransport, which Safari and Firefox don't ship yet. With the
-WebRTC extra installed (`uv sync --extra webrtc`) the same bot also serves a
-**SmallWebRTC** transport: the client picks it automatically when WebTransport
-is missing (Safari/Firefox), falls back to it when a MoQ connect fails
-(Windows/WSL2), or you can force it with `http://localhost:7860/?transport=webrtc`.
-On Windows, run the bot inside WSL2 and open the page from a Windows browser —
-see the WSL2 warning above.
+MoQ uses WebTransport, which Safari and Firefox don't ship yet. The same bot
+also serves two fallbacks, and the client walks the chain automatically when a
+connect fails (**moq → webrtc → websocket**), or you can force one with
+`?transport=webrtc` / `?transport=websocket`:
+
+- **SmallWebRTC** (`uv sync --extra webrtc`): picked automatically when
+  WebTransport is missing (Safari/Firefox).
+- **WebSocket** (always available): the pure-TCP last resort — the one that
+  works from a Windows browser to a bot inside WSL2, where neither QUIC nor
+  WebRTC's UDP media can cross. See the WSL2 warning above.
 
 ---
 
@@ -566,6 +573,7 @@ not something ollama reads.
 | `LOFI_MOQ_AUDIO_AHEAD_MS` | `500` | Max milliseconds of bot audio written ahead of real time over MoQ. TTS runs faster than real time; uncapped bursts overflow the browser's playback ring buffer and clip the start of every bot turn. Raise only if playback stutters mid-utterance. |
 | `LOFI_LOG_LEVEL` | `DEBUG` | Loguru level for stderr. `DEBUG` surfaces each service's activity — handy for the offline check. |
 | `LOFI_WEB_PORT` | `7860` | Port `bot_moq.py` serves on (used by `./lofi.sh start`). |
+| `LOFI_OPEN_BROWSER` | `1` | `0` stops `./lofi.sh start` auto-opening the page. Auto-open is always skipped on WSL (the right browser is on the Windows side). |
 | `LOFI_STATE_DIR` | `.lofi` | Where `./lofi.sh` records the PIDs of the processes it started — the only PIDs `./lofi.sh stop` will ever touch. Relative paths resolve against the repo root. |
 | `LOFI_VAD_CONFIDENCE` | `0.7` | Silero speech-probability threshold (0–1) before audio counts as speech. |
 | `LOFI_VAD_MIN_VOLUME` | `0.0` | Absolute-loudness gate. `0.0` disables it, which keeps turn detection level-independent across mics — raise toward `0.3`–`0.6` only if a noisy room false-triggers. |

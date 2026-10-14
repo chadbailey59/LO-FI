@@ -155,7 +155,14 @@ cmd_start() {
       sleep 1
     done
     echo "start: ▶ $WEB_URL — allow the mic and Connect."
-    if command -v open >/dev/null 2>&1; then
+    # Auto-open the page. LOFI_OPEN_BROWSER=0 disables. Skipped on WSL: the
+    # right browser lives on the Windows side, which this shell can't open —
+    # xdg-open would launch a WSLg browser inside the VM instead.
+    if [[ "${LOFI_OPEN_BROWSER:-1}" == "0" ]]; then
+      :
+    elif grep -qi microsoft /proc/version 2>/dev/null; then
+      echo "start: (WSL detected — open the URL above in a WINDOWS browser; ?transport=webrtc for audio)"
+    elif command -v open >/dev/null 2>&1; then
       open "$WEB_URL"
     elif command -v xdg-open >/dev/null 2>&1; then
       xdg-open "$WEB_URL"

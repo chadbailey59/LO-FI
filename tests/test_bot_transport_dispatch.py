@@ -11,13 +11,30 @@ class SmallWebRTCRunnerArguments:  # same class NAME the runner uses
     pass
 
 
+class WebSocketRunnerArguments:  # same class NAME the runner uses
+    pass
+
+
 class RunnerArguments:
     pass
 
 
 def test_transport_kind_from_runner_args():
     assert bot_moq._transport_kind(SmallWebRTCRunnerArguments()) == "webrtc"
+    assert bot_moq._transport_kind(WebSocketRunnerArguments()) == "websocket"
     assert bot_moq._transport_kind(RunnerArguments()) == "moq"
+
+
+def test_websocket_transport_params_use_protobuf_serializer():
+    from pipecat.serializers.protobuf import ProtobufFrameSerializer
+
+    params = bot_moq.build_transport_params()
+    assert "websocket" in params
+    ws = params["websocket"]()
+    assert ws.audio_in_enabled is True
+    assert ws.audio_out_enabled is True
+    assert ws.add_wav_header is False
+    assert isinstance(ws.serializer, ProtobufFrameSerializer)
 
 
 class FakeTransport:

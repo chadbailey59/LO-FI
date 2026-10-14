@@ -100,6 +100,22 @@ def build_transport_params() -> dict:
             audio_out_max_buffer_ms=config.moq_audio_ahead_ms(),
         ),
     }
+    # Plain WebSocket (pure TCP): the last-resort browser path — crosses any
+    # boundary that forwards TCP, including Windows↔WSL2 where both QUIC and
+    # WebRTC's UDP media (and aiortc's no-ICE-TCP) are dead ends.
+    def websocket_params():
+        from pipecat.serializers.protobuf import ProtobufFrameSerializer
+        from pipecat.transports.websocket.fastapi import FastAPIWebsocketParams
+
+        return FastAPIWebsocketParams(
+            audio_in_enabled=True,
+            audio_out_enabled=True,
+            add_wav_header=False,
+            serializer=ProtobufFrameSerializer(),
+        )
+
+    params["websocket"] = websocket_params
+
     try:
         import aiortc  # noqa: F401
     except ImportError:
@@ -152,9 +168,15 @@ async def wait_for_audio_subscriber(
 
 
 def _transport_kind(runner_args) -> str:
-    """Which transport a runner-args object selects: the /api/offer path hands
-    SmallWebRTCRunnerArguments to bot(); everything else here is MoQ serve mode."""
-    return "webrtc" if type(runner_args).__name__ == "SmallWebRTCRunnerArguments" else "moq"
+    """Which transport a runner-args object selects: /api/offer hands
+    SmallWebRTCRunnerArguments to bot(), /ws-client hands
+    WebSocketRunnerArguments; everything else here is MoQ serve mode."""
+    name = type(runner_args).__name__
+    if name == "SmallWebRTCRunnerArguments":
+        return "webrtc"
+    if name == "WebSocketRunnerArguments":
+        return "websocket"
+    return "moq"
 
 
 def _register_moq_handlers(transport, worker, client_ready, mic_subscribed) -> None:
@@ -195,8 +217,8 @@ def _register_moq_handlers(transport, worker, client_ready, mic_subscribed) -> N
 
 
 def _register_webrtc_handlers(transport, worker) -> None:
-    # SmallWebRTC handlers receive (transport, client). Audio flows as soon as
-    # the peer connection is up — no subscriber gate needed.
+    # SmallWebRTC and FastAPIWebsocket handlers receive (transport, client).
+    # Audio flows as soon as the connection is up — no subscriber gate needed.
     @transport.event_handler("on_client_connected")
     async def on_client_connected(_transport, _client):
         await asyncio.sleep(GREETING_SETTLE_SECS)
@@ -223,7 +245,7 @@ async def run_bot(transport: BaseTransport, runner_args: RunnerArguments) -> Non
         logger.info("RTVI client ready — sending lofi-config")
         await rtvi.send_server_message(_lofi_config_message())
 
-    if _transport_kind(runner_args) == "webrtc":
+    if _transport_kind(runner_args) in ("webrtc", "websocket"):
         _register_webrtc_handlers(transport, worker)
     else:
         _register_moq_handlers(transport, worker, client_ready, mic_subscribed)

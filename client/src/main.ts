@@ -41,20 +41,28 @@ function render(state: TransportState): void {
 const transportName = pickTransport();
 document.querySelector<HTMLSpanElement>("#transport-name")!.textContent = transportName;
 
-// MoQ connect failed (e.g. Windows/WSL2, where QUIC/UDP can't cross the
-// boundary): reload once onto WebRTC and auto-connect. Storage guards the loop;
-// no storage → no auto-retry.
-function fallBackToWebRTC(): boolean {
-  if (transportName !== "moq") return false;
+// Connect failed: reload once onto the next transport in the chain and
+// auto-connect. moq → webrtc → websocket (pure TCP, crosses any boundary that
+// forwards TCP — the Windows/WSL2 case). Storage guards the loop; no storage →
+// no auto-retry.
+const FALLBACK_NEXT: Partial<Record<string, string>> = {
+  moq: "webrtc",
+  webrtc: "websocket",
+};
+
+function fallBackToNextTransport(): boolean {
+  const next = FALLBACK_NEXT[transportName];
+  if (!next) return false;
   try {
-    if (sessionStorage.getItem("lofi-moq-failed")) return false;
-    sessionStorage.setItem("lofi-moq-failed", "1");
+    const key = `lofi-${transportName}-failed`;
+    if (sessionStorage.getItem(key)) return false;
+    sessionStorage.setItem(key, "1");
   } catch {
     return false;
   }
-  connectionState.textContent = "MoQ failed — retrying with WebRTC…";
+  connectionState.textContent = `${transportName} failed — retrying with ${next}…`;
   const url = new URL(window.location.href);
-  url.searchParams.set("transport", "webrtc");
+  url.searchParams.set("transport", next);
   url.searchParams.set("autoconnect", "1");
   window.location.assign(url);
   return true;
@@ -78,7 +86,8 @@ connectButton.addEventListener("click", async () => {
       await client.disconnect();
     }
   } catch (error) {
-    if (fallBackToWebRTC()) return;
+    console.error("[lofi] connect failed:", error);
+    if (fallBackToNextTransport()) return;
     connectionState.textContent = `error: ${error instanceof Error ? error.message : error}`;
   } finally {
     connectButton.disabled = false;
