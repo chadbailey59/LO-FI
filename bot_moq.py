@@ -27,7 +27,12 @@ from pipecat.pipeline.worker import PipelineParams, PipelineWorker
 from pipecat.runner.types import RunnerArguments
 from pipecat.runner.utils import create_transport
 from pipecat.transports.base_transport import BaseTransport
-from pipecat.transports.moq.transport import MOQParams
+# moq-ffi ships no Windows wheels — on native Windows the MoQ transport is
+# simply not offered and the bot serves websocket (+ webrtc when installed).
+try:
+    from pipecat.transports.moq.transport import MOQParams
+except ImportError:
+    MOQParams = None
 from pipecat.workers.runner import WorkerRunner
 
 import store
@@ -93,13 +98,15 @@ def build_transport_params() -> dict:
     """Transports the runner offers via /start: MoQ always; SmallWebRTC when
     aiortc is installed (uv sync --extra webrtc) — the fallback for Windows/WSL2
     (QUIC/UDP can't cross the Windows↔WSL boundary) and non-WebTransport browsers."""
-    params = {
-        "moq": lambda: MOQParams(
+    params = {}
+    if MOQParams is not None:
+        params["moq"] = lambda: MOQParams(
             audio_in_enabled=True,
             audio_out_enabled=True,
             audio_out_max_buffer_ms=config.moq_audio_ahead_ms(),
-        ),
-    }
+        )
+    else:
+        logger.info("moq transport not offered — moq-ffi unavailable on this platform")
     # Plain WebSocket (pure TCP): the last-resort browser path — crosses any
     # boundary that forwards TCP, including Windows↔WSL2 where both QUIC and
     # WebRTC's UDP media (and aiortc's no-ICE-TCP) are dead ends.
