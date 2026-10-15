@@ -1,3 +1,10 @@
+> [!IMPORTANT]
+> intel-mac version of LO-FI
+> v1.7.0 is the last version of Pipecat fully compatible with intel-mac.
+> that is where this branch is frozen, because `main` uses v1.13.0.
+> BUT, old hardware is not bad hardware, so this version of LO-FI gets
+> you a fully functional local bot, just a little slower and less accurate.
+
 # lofi — a local, fully-offline Pipecat voice bot
 
 > WIP but isn't everything?
