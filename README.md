@@ -23,8 +23,9 @@ solve a problem like echo cancellation?"
 
 - **Apple Silicon Mac recommended** — Whisper-MLX (the default STT) uses Apple's
   MLX framework and only runs there. Intel Macs and Linux work too: they default
-  to CPU STT (`faster_whisper`) automatically. Windows: run the bot inside
-  **WSL2** and open the browser UI from Windows (native Windows: not yet).
+  to CPU STT (`faster_whisper`) automatically. Windows works **natively
+  (PowerShell) or via WSL2** — see
+  [Running on Windows](#running-on-windows).
 - ~15 GB free disk for the models
 - Python **3.12** is pinned as 3.14 is too new for the ML wheels.
 - **A plain `uv sync` needs no compiler** — everything in the base install comes
@@ -113,25 +114,10 @@ uv sync
 
 (On WSL2, clone into the Linux filesystem — `~/`, not `/mnt/c/…`.)
 
-> [!WARNING]
-> **Windows/WSL2 + MoQ (2026-10-13):** a Windows browser cannot reach the
-> bot's MoQ endpoint inside WSL2 — WebTransport's QUIC/UDP never crosses the
-> Windows↔WSL boundary (verified on real hardware in NAT mode, in
-> `networkingMode=mirrored` with Hyper-V firewall inbound allowed, and with a
-> raw UDP loopback probe). WebRTC's media is UDP-first too (and aiortc has no
-> ICE-TCP), so it hits the same wall. **Use the WebSocket transport — pure
-> TCP, crosses the boundary like the web page itself does:**
->
-> ```bash
-> ./lofi.sh start
-> ```
->
-> then open `http://localhost:7860/?transport=websocket` from a Windows
-> Chrome/Edge. With no param, the client walks the fallback chain
-> (moq → webrtc → websocket) by itself — it just takes a few extra seconds of
-> failed attempts to get there. On WSL, `lofi.sh` skips its browser auto-open
-> (the right browser is on the Windows side); elsewhere, `LOFI_OPEN_BROWSER=0`
-> disables it.
+> [!NOTE]
+> **On Windows?** The whole walkthrough — WSL2 install link, RAM-sized model
+> picks, the `?transport=websocket` URL and why it's required — lives in
+> [Running on Windows](#running-on-windows).
 
 That is all you need for the browser front-ends. For the headphones front-end
 (`bot.py`), PyAudio has to compile against PortAudio, so install it and opt into
@@ -240,6 +226,150 @@ reaches out to the network after the warm-up.
 
 ---
 
+## Running on Windows
+
+Two routes, both verified end-to-end on real hardware (2026-10-14):
+
+- **Native (simplest):** PowerShell + uv, no Linux layer, full machine RAM.
+  MoQ isn't available natively (its `moq-ffi` library ships no Windows
+  wheels) — use the WebSocket transport.
+- **WSL2:** the bot runs in Linux, your browser/mic/speakers stay on Windows.
+  You get the bash tooling (`./lofi.sh`, `./configure.sh`), at the cost of
+  installing WSL and a default RAM cap.
+
+Either way, **expect speech-to-text to be the slow part**: without Apple
+Silicon, Whisper runs on the CPU. Two knobs if it drags:
+`LOFI_FASTER_WHISPER_MODEL` (a smaller model than the `DISTIL_MEDIUM_EN`
+default is faster and less accurate), or the tiny CPU-first engine:
+`uv sync --extra moonshine` + `LOFI_STT_ENGINE=moonshine`.
+
+### Route A: native Windows (PowerShell)
+
+No admin needed. In PowerShell:
+
+```powershell
+# one-time tools
+powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"
+winget install --id Git.Git          # if you don't have git
+winget install --id Ollama.Ollama    # the local LLM server
+
+# code + env (uv fetches its own Python 3.12)
+git clone https://github.com/vipyne/LO-FI.git
+cd LO-FI
+uv sync
+
+# models (one-time, online)
+uv run python scripts/prefetch_models.py
+
+# run — the bash launcher (lofi.sh) doesn't run natively; start the bot directly
+uv run python bot_moq.py --host localhost --port 7860
+```
+
+Then open **`http://localhost:7860/?transport=websocket`** in Chrome or Edge,
+Connect, allow the mic, talk. Env vars in PowerShell are session-scoped
+assignments, e.g.:
+
+```powershell
+$env:LOFI_LLM_MODEL = "llama3.2:1b"
+$env:LOFI_ARCHITECTURE = "cascade"
+```
+
+The explicit `?transport=websocket` skips the fallback chain's wasted
+attempts (MoQ isn't offered natively). Optional: `uv sync --extra webrtc`
+enables `?transport=webrtc` — native loopback UDP works, unlike WSL2, so
+WebRTC's Opus-encoded path is available here.
+
+### Route B: WSL2
+
+#### 1. Install WSL2 (one-time)
+
+Follow Microsoft's guide: <https://learn.microsoft.com/windows/wsl/install>.
+The short version: open an **admin** terminal (Win+X → "Terminal (Admin)"),
+run `wsl --install`, reboot, and create your Ubuntu username/password when the
+first launch asks. No special networking configuration is needed — the
+WebSocket transport below works in WSL2's default (NAT) networking mode.
+
+#### 2. Set up lofi inside WSL
+
+Open Windows Terminal → the **Ubuntu** profile (the ˅ dropdown next to the
+new-tab button), then run the bare-Linux setup block from
+[Setup step 1](#1-clone-install-system-deps-and-sync-the-environment) — deps
+(git, curl, uv, Ollama), clone, `uv sync`. Two WSL-specific rules:
+
+- **Clone into the Linux filesystem** (`~/`), never `/mnt/c/…` — the Windows
+  mount is slow and flaky for this workload.
+- Everything below runs **inside the Ubuntu tab**; only the browser runs on
+  Windows.
+
+#### 3. Pick models that fit your RAM
+
+WSL shares the machine's RAM, and every resident model has to fit —
+`./configure.sh` profiles the machine and ranks model combos that fit (`-i`
+to pick interactively). The default pair (qwen2.5:7b front + qwen3:8b analyst)
+wants **16 GB+**. On a ~8 GB machine, drop to a single small model in
+`cascade` mode before prefetching:
+
+```bash
+export LOFI_ARCHITECTURE=cascade LOFI_LLM_MODEL=llama3.2:1b LOFI_RAG_LLM_MODEL=llama3.2:1b
+uv run python scripts/prefetch_models.py
+./lofi.sh index-rag          # optional: build the RAG index
+```
+
+That tier is **proof-of-life, not accuracy** — it converses and exercises the
+whole pipeline, but a 1B model fumbles records questions (measured: as an
+observer front it invents numbers on ~1 in 3 data questions, which is why the
+small-machine recipe uses `cascade`, not the observer default). Real
+records-accuracy wants the 16 GB tier — the
+[model table](#three-architectures-one-env-var) shows what each step up buys.
+
+#### 4. Run
+
+```bash
+./lofi.sh start
+```
+
+(`lofi.sh` detects WSL and skips its browser auto-open — the right browser is
+on the Windows side.) Then, in **Chrome or Edge on Windows**, open:
+
+```
+http://localhost:7860/?transport=websocket
+```
+
+Click **Connect**, allow the mic, talk. The `?transport=websocket` matters:
+MoQ's QUIC and WebRTC's media are both UDP, which never crosses the
+Windows↔WSL boundary (verified in NAT and mirrored modes, Hyper-V firewall
+open, raw-UDP probe) — the WebSocket transport is pure TCP and crosses the
+boundary the same way the web page itself does. With no param the client
+walks the fallback chain (moq → webrtc → websocket) on its own, it just
+spends ~15–30 s failing before it lands.
+
+### Windows troubleshooting
+
+- **WSL only sees about half your RAM** — that's its default cap, and it's
+  what `./configure.sh` and Ollama see. A 16 GB machine shows ~8 GB inside
+  Ubuntu. Raise it: edit `%UserProfile%\.wslconfig` on the Windows side
+  (`vi /mnt/c/Users/<you>/.wslconfig` from bash works) to
+
+  ```ini
+  [wsl2]
+  memory=12GB
+  ```
+
+  then `wsl --shutdown` in PowerShell and relaunch. With 12 GB the real
+  16 GB-tier model pair usually fits.
+- **Forgot your Ubuntu sudo password**: in PowerShell, `wsl -d Ubuntu -u root`,
+  then `passwd <your-username>`, `exit`. (A once-a-day MOTD error in the root
+  shell is harmless noise.)
+- **First reply after startup is slow**: that's the model loading into RAM;
+  `OLLAMA_KEEP_ALIVE=30m` keeps it resident afterwards.
+- **A `(could not resolve models — run 'uv sync' and retry)` line at start**:
+  cosmetic; the bot still starts.
+- **Editing Windows-side files from bash**: they're under `/mnt/c/Users/<you>/…`
+  (e.g. `vi /mnt/c/Users/<you>/.wslconfig`) — handy, but keep the repo itself
+  in `~/`.
+
+---
+
 ## How do you solve a problem like echo cancellation
 
 ### Use headphones
@@ -270,7 +400,8 @@ connect fails (**moq → webrtc → websocket**), or you can force one with
   WebTransport is missing (Safari/Firefox).
 - **WebSocket** (always available): the pure-TCP last resort — the one that
   works from a Windows browser to a bot inside WSL2, where neither QUIC nor
-  WebRTC's UDP media can cross. See the WSL2 warning above.
+  WebRTC's UDP media can cross. See
+  [Running on Windows](#running-on-windows).
 
 ---
 
