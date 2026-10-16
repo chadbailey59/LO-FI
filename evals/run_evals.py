@@ -12,9 +12,6 @@ no model-authored SQL:
   --stage split      the split architecture: front delegation (reasoning off,
                       one delegate tool) + the records agent for real
                       (reasoning on, native API). Not part of --stage all.
-  --stage observer   the observer architecture: the records agent sees every
-                      query itself (reasoning on, sentinel for chitchat).
-                      Not part of --stage all.
   --stage all        (default) the first four, in order.
 
 Questions are grounded against PINNED_TODAY — the gold answers for relative-date
@@ -696,7 +693,7 @@ async def run_split_stage(queries: list[dict], db_path, embedder, client: httpx.
     }
 
 
-# ---- stage: front (observer-mode front model: defer, never invent) ------------
+# ---- stage: front (split front model: defer, never invent) --------------------
 
 DEFER_PHRASES = (
     "check your records",
@@ -713,7 +710,7 @@ def is_deferral(text: str) -> bool:
 
 
 async def run_front_stage(queries: list[dict], system: str, client) -> dict:
-    """The observer front alone, no tools: data questions must get a deferral
+    """The split front alone, no tools: data questions must get a deferral
     with no invented numbers; chitchat must get a normal answer."""
     rows = []
     for q in queries:
@@ -769,60 +766,6 @@ async def run_front_stage(queries: list[dict], system: str, client) -> dict:
     }
 
 
-# ---- stage: observer (analyst sees every query itself) ------------------------
-
-
-async def run_observer_stage(queries: list[dict], db_path, embedder) -> dict:
-    data_rows = []
-    chit_rows = []
-    for q in queries:
-        if q["type"] == "fragmented":
-            continue
-        result = await rag_agent.answer_question(
-            q["query"],
-            db_path=db_path,
-            embedder=embedder,
-            today=PINNED_TODAY,
-            system_prompt=records_analyst.OBSERVER_SYSTEM_PROMPT,
-            history=q.get("history"),
-        )
-        is_sentinel = records_analyst.NOT_RECORDS in result.answer
-        if q["type"] == "chitchat":
-            chit_rows.append({"id": q["id"], "silent": is_sentinel})
-            continue
-        if q.get("refusal"):
-            answer_ok = not is_sentinel and is_refusal(result.answer)
-        else:
-            answer_ok = not is_sentinel and answer_contains(q["expected_answer"], result.answer)
-        data_rows.append(
-            {
-                "id": q["id"],
-                "answer_ok": answer_ok,
-                "sentinel": is_sentinel,
-                "answer": result.answer,
-                "traces": result.traces,
-                "total_ms": result.timings.get("total_ms"),
-                "error": result.error,
-            }
-        )
-    totals = [r["total_ms"] for r in data_rows if r["total_ms"]]
-    return {
-        "data_rows": data_rows,
-        "chit_rows": chit_rows,
-        "answer_accuracy": (
-            sum(r["answer_ok"] for r in data_rows) / len(data_rows) if data_rows else None
-        ),
-        "sentinel_on_data": (
-            sum(r["sentinel"] for r in data_rows) / len(data_rows) if data_rows else None
-        ),
-        "silent_on_chitchat": (
-            sum(r["silent"] for r in chit_rows) / len(chit_rows) if chit_rows else None
-        ),
-        "total_ms_mean": round(sum(totals) / len(totals), 1) if totals else None,
-        "total_ms_max": max(totals) if totals else None,
-    }
-
-
 # ---- report printing ----------------------------------------------------------
 
 
@@ -832,10 +775,10 @@ def _print_table(title: str, rows: list[tuple]) -> None:
         print(" | ".join(str(c) for c in row))
 
 
-def print_report(retrieval_report=None, toolcall_report=None, e2e_report=None, isolate_report=None, split_report=None, observer_report=None, front_report=None) -> None:
+def print_report(retrieval_report=None, toolcall_report=None, e2e_report=None, isolate_report=None, split_report=None, front_report=None) -> None:
     if front_report is not None:
         _print_table(
-            "Observer front alone (no tools: defer, never invent)",
+            "Split front alone (no tools: defer, never invent)",
             [
                 ("no_invented_numbers_rate", front_report["no_invented_numbers_rate"]),
                 ("defers_on_data", front_report["defers_on_data"]),
@@ -890,17 +833,6 @@ def print_report(retrieval_report=None, toolcall_report=None, e2e_report=None, i
                 ("back_ms_max", split_report["back_ms_max"]),
             ],
         )
-    if observer_report is not None:
-        _print_table(
-            "Observer architecture (analyst sees every query, reasoning on)",
-            [
-                ("answer_accuracy", observer_report["answer_accuracy"]),
-                ("sentinel_on_data (missed questions)", observer_report["sentinel_on_data"]),
-                ("silent_on_chitchat", observer_report["silent_on_chitchat"]),
-                ("total_ms_mean", observer_report["total_ms_mean"]),
-                ("total_ms_max", observer_report["total_ms_max"]),
-            ],
-        )
     if isolate_report is not None:
         _print_table(
             "Isolate (gold rows pasted in as the tool result)",
@@ -953,7 +885,7 @@ async def _amain(args) -> None:
         PINNED_TODAY, store.date_range(db_path), store.categories(db_path)
     )
 
-    retrieval_report = toolcall_report = e2e_report = isolate_report = split_report = observer_report = front_report = None
+    retrieval_report = toolcall_report = e2e_report = isolate_report = split_report = front_report = None
     run_all = args.stage == "all"
 
     if run_all or args.stage == "retrieval":
@@ -973,14 +905,12 @@ async def _amain(args) -> None:
             )
         if args.stage == "split":
             split_report = await run_split_stage(queries, db_path, embedder, client)
-        if args.stage == "observer":
-            observer_report = await run_observer_stage(queries, db_path, embedder)
         if args.stage == "front":
             front_report = await run_front_stage(
-                queries, financial_advisor.OBSERVER_FRONT_PROMPT, client
+                queries, financial_advisor.FRONT_PROMPT, client
             )
 
-    print_report(retrieval_report, toolcall_report, e2e_report, isolate_report, split_report, observer_report, front_report)
+    print_report(retrieval_report, toolcall_report, e2e_report, isolate_report, split_report, front_report)
 
     if args.json:
         reports = {
@@ -991,7 +921,6 @@ async def _amain(args) -> None:
                 ("e2e", e2e_report),
                 ("isolate", isolate_report),
                 ("split", split_report),
-                ("observer", observer_report),
                 ("front", front_report),
             ]
             if report is not None
@@ -1007,7 +936,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
         "--stage",
-        choices=["retrieval", "toolcall", "e2e", "isolate", "split", "observer", "front", "all"],
+        choices=["retrieval", "toolcall", "e2e", "isolate", "split", "front", "all"],
         default="all",
     )
     parser.add_argument(

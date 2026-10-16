@@ -17,28 +17,6 @@ HISTORY = [
 ]
 
 
-def test_observer_stage_threads_multiturn_history(monkeypatch):
-    calls = []
-
-    async def fake_answer(question, **kwargs):
-        calls.append({"question": question, **kwargs})
-        return rag_agent.AgentResult(answer="That was in the Food & Drink category, $40.00.")
-
-    monkeypatch.setattr(run_evals.rag_agent, "answer_question", fake_answer)
-    query = {
-        "id": "mt-1",
-        "type": "multiturn",
-        "query": "what category was that?",
-        "history": HISTORY,
-        "expected_answer": "Food & Drink 40.00",
-    }
-    report = asyncio.run(run_evals.run_observer_stage([query], "/tmp/x.db", None))
-
-    assert calls[0]["question"] == "what category was that?"
-    assert calls[0]["history"] == HISTORY
-    assert report["data_rows"][0]["answer_ok"] is True
-
-
 class FakeV1Client:
     """Scripted /v1/chat/completions replies; sticky last entry; exceptions raise."""
 
@@ -113,13 +91,13 @@ def test_front_stage_sends_no_tools_and_skips_multiturn():
 
 
 def test_json_payload_records_models_and_stage():
-    payload = run_evals.build_json_payload("observer", {"observer": {"answer_accuracy": 0.7}}, git_sha="abc123")
-    assert payload["meta"]["stage"] == "observer"
+    payload = run_evals.build_json_payload("split", {"split": {"answer_accuracy": 0.7}}, git_sha="abc123")
+    assert payload["meta"]["stage"] == "split"
     assert payload["meta"]["llm_model"]
     assert payload["meta"]["rag_llm_model"]
     assert payload["meta"]["pinned_today"] == "2026-10-12"
     assert payload["meta"]["git_sha"] == "abc123"
-    assert payload["reports"]["observer"]["answer_accuracy"] == 0.7
+    assert payload["reports"]["split"]["answer_accuracy"] == 0.7
 
 
 def test_single_turn_stages_skip_multiturn_queries():

@@ -385,8 +385,8 @@ def model_entries() -> list[dict]:
         {"role": "STT", "model": _stt_line(), "path": _path_line(_stt_file())},
         _llm_entry(),
     ]
-    # Split/observer run the records analyst as its own (always local) model.
-    if config.architecture() in ("split", "observer"):
+    # Split runs the records analyst as its own (always local) model.
+    if config.architecture() == "split":
         entries.append(
             {
                 "role": "ANALYST",

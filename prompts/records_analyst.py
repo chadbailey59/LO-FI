@@ -71,13 +71,3 @@ SYSTEM_PROMPT = (
 )
 
 
-NOT_RECORDS = "NOT_RECORDS"
-
-OBSERVER_SYSTEM_PROMPT = (
-    SYSTEM_PROMPT
-    + "\n\nYou are listening alongside a conversation partner who handles small "
-    "talk and general advice. First decide whether the question is about the "
-    "user's own transactions or saved documents at all. If it is NOT — a "
-    "greeting, a definition, general money advice, or chit-chat — reply with "
-    f"exactly {NOT_RECORDS} and nothing else, and call no tools."
-)

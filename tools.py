@@ -161,6 +161,46 @@ def _result_count(payload: dict) -> int:
     return payload.get("count", 0)
 
 
+def build_backend_tools(db_path, embedder) -> list[FunctionSchema]:
+    """The four schemas with plain handlers for a BackendLLMWorker: result in,
+    result out — no RTVI side-channel (the worker already streams each call as
+    a BackendToolCall event; the UI panel re-plumbs from those)."""
+
+    funcs = {
+        "lookup": retrieval.lookup,
+        "filter_rows": retrieval.filter_rows,
+        "aggregate": retrieval.aggregate,
+        "semantic_search": lambda path, **kw: retrieval.semantic_search(path, embedder=embedder, **kw),
+    }
+
+    def make_handler(name, func):
+        async def handler(params: FunctionCallParams) -> None:
+            args = _parse_arguments(params.arguments)
+            if args is None:
+                await params.result_callback({"error": "arguments must be a JSON object"})
+                return
+            try:
+                result = await asyncio.to_thread(func, db_path, **args)
+            except (TypeError, ValueError, KeyError, sqlite3.Error) as exc:
+                await params.result_callback({"error": str(exc)})
+                return
+            await params.result_callback(result)
+
+        handler.__name__ = name
+        return handler
+
+    return [
+        FunctionSchema(
+            name=name,
+            description=spec["description"],
+            properties=spec["properties"],
+            required=spec["required"],
+            handler=make_handler(name, funcs[name]),
+        )
+        for name, spec in PARAMS.items()
+    ]
+
+
 def build_tools(db_path, embedder) -> list[FunctionSchema]:
     """Four FunctionSchemas with bundled handlers — pipecat registers them for
     any LLMContext that advertises the schemas."""

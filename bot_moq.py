@@ -30,7 +30,23 @@ from pipecat.transports.base_transport import BaseTransport
 # moq-ffi ships no Windows wheels — on native Windows the MoQ transport is
 # simply not offered and the bot serves websocket (+ webrtc when installed).
 try:
-    from pipecat.transports.moq.transport import MOQParams
+    from pipecat.transports.moq.transport import MOQParams, MOQTransportClient
+
+    # TEMP upstream-bug patch (pipecat git main, dev628): a barge-in's
+    # reset_audio_pacing() nulls _publish_audio_clock during publish_audio's
+    # pacing sleep; the += on wake raises TypeError (None + float) and the
+    # frame is dropped ("Error writing audio frame"). Retry once with the
+    # clock cleared so the write re-anchors. Remove once fixed in pipecat.
+    _orig_publish_audio = MOQTransportClient.publish_audio
+
+    async def _publish_audio_reanchor_on_race(self, audio: bytes):
+        try:
+            await _orig_publish_audio(self, audio)
+        except TypeError:
+            self._publish_audio_clock = None
+            await _orig_publish_audio(self, audio)
+
+    MOQTransportClient.publish_audio = _publish_audio_reanchor_on_race
 except ImportError:
     MOQParams = None
 from pipecat.workers.runner import WorkerRunner

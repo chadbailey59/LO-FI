@@ -149,7 +149,7 @@ def _ollama_models_to_check() -> list[str]:
     models: list[str] = []
     if config.llm_engine() == "ollama":
         models.append(config.llm_model())
-    if config.architecture() in ("split", "observer"):
+    if config.architecture() == "split":
         for model in (config.rag_llm_model(), config.rag_fast_llm_model()):
             if model not in models:
                 models.append(model)

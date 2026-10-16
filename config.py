@@ -173,11 +173,16 @@ DEFAULT_WHISPER_MODEL = "LARGE_V3_TURBO"
 DEFAULT_FASTER_WHISPER_MODEL = "DISTIL_MEDIUM_EN"
 DEFAULT_MOONSHINE_MODEL = "SMALL_STREAMING"
 DEFAULT_PIPER_VOICE = "en_US-lessac-medium"
-# The workshop-locked pair (swept 2026-10-13, evals/sweep.sh): obedient
-# non-thinking front + thinking analyst, observer architecture.
+# The default pair: obedient non-thinking front + thinking analyst backend on
+# the split (LLMWithBackend) architecture. qwen2.5:7b is the smallest front
+# that delegates follow-ups reliably (3/3; 3b/4b fronts drop them and
+# fabricate). qwen3:8b analyst calls its tools via the API 3/3 under the
+# worker's composed prompt; nemotron-3-nano:4b writes tool calls as JSON text
+# there (3/3, measured 2026-10-16) and silently answers nothing — unusable as
+# the split backend.
 DEFAULT_LLM_MODEL = "qwen2.5:7b"
-DEFAULT_RAG_LLM_MODEL = "nemotron-3-nano:4b"
-DEFAULT_ARCHITECTURE = "observer"
+DEFAULT_RAG_LLM_MODEL = "qwen3:8b"
+DEFAULT_ARCHITECTURE = "split"
 DEFAULT_OLLAMA_BASE_URL = "http://localhost:11434/v1"
 DEFAULT_EMBED_MODEL = "nomic-embed-text"
 DEFAULT_RAG_DATA_DIR = "data"
@@ -399,11 +404,11 @@ def rag_index_dir() -> str:
 
 def rag_llm_model() -> str:
     """Ollama tag for the records analyst (LOFI_RAG_LLM_MODEL, default
-    ``nemotron-3-nano:4b`` — fits beside the front in ~8GB; qwen3:8b is the
-    measured-best analyst for 16GB+ machines, see evals/sweep.sh).
+    ``qwen3:8b`` — the measured-best analyst, wants ~16GB with the front).
 
-    Set it to mix differently, e.g. LOFI_RAG_LLM_MODEL=nemotron-3-nano:4b on
-    smaller machines, or the front model's own tag for one set of weights.
+    The split backend needs a model that emits real API tool calls under the
+    worker's composed prompt — nemotron-3-nano:4b narrates them as JSON text
+    and answers nothing (measured 2026-10-16).
     """
     return _get("LOFI_RAG_LLM_MODEL", DEFAULT_RAG_LLM_MODEL)
 
@@ -419,20 +424,18 @@ def rag_fast_llm_model() -> str:
 
 
 def architecture() -> str:
-    """Bot architecture (LOFI_ARCHITECTURE, default ``observer``).
+    """Bot architecture (LOFI_ARCHITECTURE, default ``split``).
 
-    ``cascade``: one model holds the four retrieval tools directly.
-    ``split``: the pipeline model (reasoning off) holds one delegate tool;
-    a records agent on the same model (reasoning on, native API) runs the
-    four retrieval tools and its answer is spoken deterministically.
-    ``observer``: no tools on the pipeline model — the records agent listens
-    to every user turn itself, decides relevance, and speaks grounded answers
-    directly, so no front-model routing decision can drop a records question.
+    ``split`` (default): a conversational front model delegates records work
+    to a reasoning analyst backend (pipecat LLMWithBackend/BackendLLMWorker)
+    that runs the four retrieval tools.
+    ``cascade``: one model holds the four retrieval tools directly — the
+    simple, stable fallback.
     """
     value = _get("LOFI_ARCHITECTURE", DEFAULT_ARCHITECTURE).strip().lower()
-    if value not in ("cascade", "split", "observer"):
+    if value not in ("cascade", "split"):
         raise SystemExit(
-            f"\n✖ Unknown LOFI_ARCHITECTURE '{value}' — valid: observer (default), cascade, split\n"
+            f"\n✖ Unknown LOFI_ARCHITECTURE '{value}' — valid: split (default), cascade\n"
         )
     return value
 

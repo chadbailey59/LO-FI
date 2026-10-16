@@ -4,7 +4,7 @@ forgotten tool call never ends in dead air.
 
 Armed by UserStoppedSpeakingFrame or a `lofi-busy` signal; disarmed by the
 user speaking again or bot text flowing through. While busy (a records lookup
-in flight), streamed LLM text does NOT disarm — in observer mode the front
+in flight), streamed LLM text does NOT disarm — while a backend works the front
 chats while the analyst works, and that chatter must not silence the watchdog.
 Busy clears on `lofi-idle`, a route line, or a spoken answer. The canned
 filler bypasses this processor (queued directly on the TTS service), so a

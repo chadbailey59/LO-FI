@@ -1,13 +1,15 @@
-# LO-FI — a local, fully-offline Pipecat voice AI bot
+# lofi — a local, fully-offline Pipecat voice bot
 
-> WIP
+> WIP but isn't everything?
 
-A voice AI bot that runs Key-Free & **100% offline**. Speech-to-text, the language model, 
+A voice bot that runs Key-Free & **100% offline**. Speech-to-text, the language model, 
 and text-to-speech are all local services, and the "transport†" is your machine's own
 audio hardware — the microphone and speakers.
 
-Built on [Pipecat](https://github.com/pipecat-ai/pipecat) release
-(≥ 1.7). This repo is meant to double as a clear, reproducible **example** of how to
+Built on [Pipecat](https://github.com/pipecat-ai/pipecat) **main** (pre-1.13,
+installed straight from git — see below): the split architecture rides
+`LLMWithBackend`/`BackendLLMWorker`, which haven't shipped in a release yet.
+This repo is meant to double as a clear, reproducible **example** of how to
 wire up a fully-local Pipecat bot.
 
 The v1 personality is a **private financial thinking partner**: something you can
@@ -36,9 +38,14 @@ solve a problem like echo cancellation?"
   which platform lost a wheel.
   The one exception is PyAudio, which has no macOS/Linux wheels — so it is an
   opt-in extra (`--extra local-audio`) needed only by the headphones front-end.
-  This is also why pipecat is pinned `<1.8`: from 1.8.0 its core dependency
-  `loudness` and the moq transport's `moq-ffi` ship no Intel-mac wheels at all,
-  so upgrading means dropping Intel Macs.
+- **Pipecat comes from git main**, not PyPI: `pyproject.toml` points uv at
+  `github.com/pipecat-ai/pipecat@main` because the split architecture's
+  building blocks (`LLMWithBackend`, `BackendLLMWorker`) are newer than the
+  latest release (1.12). The first `uv sync` clones that repo, so it needs
+  network; the pin moves to `>=1.13` the moment that release ships. Note:
+  pipecat ≥ 1.8 drops Intel-mac wheels entirely (its core dep `loudness`
+  ships none) — **Intel macs use the frozen [`intel-mac` branch](../../tree/intel-mac)**
+  (pipecat 1.7, cascade + all three transports).
 - **[uv](https://docs.astral.sh/uv/)** — Python package manager.
 - **[Ollama](https://ollama.com/)** — serves the local LLM.
 - **PortAudio** OR **any web browser** — PyAudio's native dependency / audio
@@ -305,9 +312,9 @@ new-tab button), then run the bare-Linux setup block from
 
 WSL shares the machine's RAM, and every resident model has to fit —
 `./configure.sh` profiles the machine and ranks model combos that fit (`-i`
-to pick interactively). The heavier analyst option (qwen2.5:7b front + qwen3:8b analyst)
-wants **16 GB+**. On a ~8 GB machine, drop to a single small model in
-`cascade` mode before prefetching:
+to pick interactively). The default pair (qwen2.5:7b front + qwen3:8b
+analyst) wants **16 GB+**. On a ~8 GB machine, drop to a
+single small model in `cascade` mode before prefetching:
 
 ```bash
 export LOFI_ARCHITECTURE=cascade LOFI_LLM_MODEL=llama3.2:1b LOFI_RAG_LLM_MODEL=llama3.2:1b
@@ -316,9 +323,9 @@ uv run python scripts/prefetch_models.py
 ```
 
 That tier is **proof-of-life, not accuracy** — it converses and exercises the
-whole pipeline, but a 1B model fumbles records questions (measured: as an
-observer front it invents numbers on ~1 in 3 data questions, which is why the
-small-machine recipe uses `cascade`, not the observer default). Real
+whole pipeline, but a 1B model fumbles records questions (measured: as a
+front model it invents numbers on ~1 in 3 data questions, which is why the
+small-machine recipe uses `cascade`, not the `split` default). Real
 records-accuracy wants the 16 GB tier — the
 [model table](#three-architectures-one-env-var) shows what each step up buys.
 
@@ -439,7 +446,7 @@ LOFI_LLM_ENGINE=hosted LOFI_HOSTED_BASE_URL=https://api.openai.com/v1 \
 You control exactly what leaves the machine, and the UI says so **loudly** — a
 persistent banner names the provider whenever hosted mode is on:
 
-- **`observer` / `split`**: the records analyst, the retrieval tools, your
+- **`split`**: the records analyst, the retrieval tools, your
   documents and raw transactions all stay local. The hosted model sees only the
   conversation — which includes the analyst's short spoken answers *about* your
   records, but never the records themselves.
@@ -458,7 +465,7 @@ all: they are local, period.
 | Component | Service | Notes |
 |---|---|---|
 | Speech-to-text | `WhisperSTTServiceMLX` *(default)* | Apple-Silicon-optimized Whisper via MLX. Alternatives via `LOFI_STT_ENGINE`: `faster_whisper` (CPU), `moonshine` (tiny CPU ONNX) |
-| Language model | `qwen2.5:7b` front + `nemotron-3-nano:4b` records analyst *(defaults)* via **Ollama** | Local, OpenAI-compatible endpoint; env-configurable. The observer architecture's analyst (`LOFI_RAG_LLM_MODEL`) answers from your records. |
+| Language model | `qwen2.5:7b` front + `qwen3:8b` records analyst *(defaults)* via **Ollama** | Local, OpenAI-compatible endpoint; env-configurable. The split architecture's analyst backend (`LOFI_RAG_LLM_MODEL`) answers from your records. |
 | Text-to-speech | `KokoroTTSService` *(default)* | Natural local neural voice (kokoro-onnx). Alternative via `LOFI_TTS_ENGINE`: `piper` |
 | Turn-taking | Silero VAD | Barge-in / interruptions, fully local (bundled with Pipecat) |
 | Transport | `MoQ` (browser) | free echo cancellation via `getUserMedia`; needs Chrome/Edge |
@@ -477,40 +484,38 @@ ollama pull nomic-embed-text   # one-time, while online
 ./lofi.sh index-rag
 ```
 
-### Three architectures, one env var
+### Two architectures, one env var
 
 `LOFI_ARCHITECTURE` picks how retrieval and conversation share the work:
 
+- **`split`** (the default) — a conversational front model (reasoning off)
+  delegates records work to a reasoning analyst backend via Pipecat's
+  `LLMWithBackend`/`BackendLLMWorker`. The front holds one domain-named
+  builtin (`ask_financial_records`); the backend (`LOFI_RAG_LLM_MODEL`,
+  reasoning on, native API) holds the four retrieval tools and answers from
+  your records. The backend's thinking stays in the native API's `reasoning`
+  field and never reaches TTS; its answers are written back into the
+  conversation, so follow-ups work.
 - **`cascade`** — one model does the talking and the retrieving. It
   holds four typed tools over the index; any question about transactions,
   spending, merchants, accounts, totals, or saved documents turns into tool
   calls, and the model answers only from what they return — with a short
   "Let me check your records." covering the lookup. The simplest architecture
-  to read and the place to start.
-- **`split`** (retired, kept as teaching material) — a reasoning-off front
-  model holds ONE delegate tool and routes records questions to a reasoning-on
-  analyst. Routing recall capped around 0.51 on small models: the front model
-  silently drops questions it fails to route. That failure is the lesson.
-- **`observer`** (the default) — the front model has NO tools and just
-  converses; a records analyst (`LOFI_RAG_LLM_MODEL`, reasoning on) listens to
-  every user turn in parallel, decides relevance itself, and speaks grounded
-  answers directly. No routing decision can drop a question. The analyst
-  writes its spoken answers back into the conversation, so follow-ups work.
+  to read and the stable fallback.
 
-In observer mode the browser UI shows a **mode toggle**: 🧠 *accurate* (the
-analyst thinks before answering) ⇄ ⚡ *fast* (thinking off, optionally a
-smaller `LOFI_RAG_FAST_LLM_MODEL`). Same conversation, live latency/accuracy
-trade-off — flip it mid-session.
+(Two earlier architectures live in git history: `observer`, an analyst
+listening to every turn in parallel, and split-v1, a generic delegate tool
+whose routing recall capped at 0.51 on small models.)
 
 Pick models for your hardware — same code, env vars
-(`LOFI_ARCHITECTURE=observer LOFI_RAG_LLM_MODEL=<tag> ./lofi.sh start`).
-Measured on an internal eval (28 gold queries incl. multi-turn, M4 Pro):
+(`LOFI_ARCHITECTURE=split LOFI_RAG_LLM_MODEL=<tag> ./lofi.sh start`).
+Measured on an internal eval (28 gold queries incl. multi-turn, M4 Pro;
+observer rows are historical — the split-v2 eval stage is pending):
 
 | Config | RAM | Answer accuracy | Full lookup, mean |
 |---|---|---|---|
-| observer: `qwen2.5:7b` front + `qwen3:8b` analyst | ≥ 16 GB | **0.93** | ~20 s accurate mode* |
-| observer: `qwen2.5:7b` front + `nemotron-3-nano:4b` analyst (default) | ≥ 12 GB | 0.79 | ~14 s accurate mode* |
-| observer: `qwen2.5:7b` front + `nemotron-3-nano:4b` analyst | ≥ 16 GB (8 GB with smaller STT) | 0.79 | ~14 s accurate mode* |
+| observer (retired): `qwen2.5:7b` front + `qwen3:8b` analyst | ≥ 16 GB | **0.93** | ~20 s accurate mode* |
+| observer (retired): `qwen2.5:7b` front + `nemotron-3-nano:4b` analyst | ≥ 16 GB (8 GB with smaller STT) | 0.79 | ~14 s accurate mode* |
 | `qwen2.5:14b` cascade | ≥ 24 GB | 0.65 | ~8.2 s |
 | `qwen2.5:7b` cascade | ≥ 16 GB | 0.43 | ~4.0 s |
 
@@ -518,7 +523,7 @@ Measured on an internal eval (28 gold queries incl. multi-turn, M4 Pro):
 
 Reasoning models (deepseek-r1, qwen3 with thinking) are not supported as the
 **pipeline** model — nothing strips thinking tokens before the voice. The
-observer's analyst is exactly where a reasoning model belongs: its thinking
+split backend is exactly where a reasoning model belongs: its thinking
 stays in the native API's `reasoning` field and never reaches TTS.
 
 An earlier version did RAG the way most tutorials do — chunk the CSV, embed the
@@ -636,7 +641,7 @@ The workshop question: *what can this computer actually run?* The process:
    `OLLAMA_MAX_LOADED_MODELS=3` and `OLLAMA_KEEP_ALIVE=30m` so the working set
    stays loaded instead of thrashing.
 2. **Measure, don't vibe.** The eval harness is the yardstick:
-   `uv run python evals/run_evals.py --stage observer` scores a candidate
+   `uv run python evals/run_evals.py --stage split` scores a candidate
    analyst on gold queries (accuracy, missed questions, latency);
    `--stage front` checks a candidate front model never invents numbers and
    defers records questions. `evals/sweep.sh` loops a list of candidates
@@ -677,8 +682,8 @@ not something ollama reads.
 | Variable | Default | What it does |
 |---|---|---|
 | `LOFI_LLM_MODEL` | `qwen2.5:7b` | Ollama tag for the conversation model (and, in `cascade`, the four retrieval tools). Same string `run_ollama.sh` pulls and the bot serves. Smaller machines: see the model table above. |
-| `LOFI_ARCHITECTURE` | `observer` | `observer` (default) \| `cascade` \| `split` (retired) — see [Three architectures](#three-architectures-one-env-var). |
-| `LOFI_RAG_LLM_MODEL` | `nemotron-3-nano:4b` | Ollama tag for the records analyst (`split`/`observer`). `qwen3:8b` is the measured best (0.93 on the eval) for 16 GB+ machines. |
+| `LOFI_ARCHITECTURE` | `split` | `split` (default) \| `cascade` — see [Two architectures](#two-architectures-one-env-var). |
+| `LOFI_RAG_LLM_MODEL` | `qwen3:8b` | Ollama tag for the records analyst backend (`split`). Needs a model that emits real API tool calls — `nemotron-3-nano:4b` narrates them as JSON text and fails as the split backend. |
 | `LOFI_RAG_FAST_LLM_MODEL` | `$LOFI_RAG_LLM_MODEL` | Analyst model for the UI's ⚡ fast mode (thinking always off there). A *distinct* fast model needs `OLLAMA_MAX_LOADED_MODELS=4` so nothing gets evicted. |
 | `LOFI_LLM_ENGINE` | `ollama` | `ollama` (local) \| `hosted` (any OpenAI-compatible endpoint) — see [Going online](#going-online-the-hosted-llm-escape-hatch). |
 | `LOFI_HOSTED_BASE_URL` | `https://api.openai.com/v1` | Endpoint for `hosted` mode. Key comes from the shell env: `LOFI_HOSTED_API_KEY` (or `OPENAI_API_KEY`). |
@@ -740,7 +745,6 @@ lofi/
 ├── pipeline.py               # the one build_pipeline() every bot shares
 ├── services.py               # STT/LLM/TTS builders, engine-dispatched
 ├── config.py                 # env-driven settings, zero-config defaults
-├── observer_processor.py     # observer architecture: the analyst on every turn
 ├── rag_agent.py              # the records analyst (native Ollama API, thinking on)
 ├── tools.py                  # the four retrieval tool schemas + Pipecat wiring
 ├── retrieval.py              # lookup / filter_rows / aggregate / semantic_search
@@ -749,7 +753,7 @@ lofi/
 ├── silence_watchdog.py       # "I'm still working on it" during long lookups
 ├── spoken_text_filter.py     # TTS filter: "$3,000" → "three thousand dollars"
 ├── prompts/
-│   ├── financial_advisor.py  # front prompts (cascade / split / observer)
+│   ├── financial_advisor.py  # front prompts (cascade / split)
 │   └── records_analyst.py    # the analyst's prompt + NOT_RECORDS sentinel
 │
 ├── lofi.sh                   # start | stop | status | index-rag | consolidate | configure

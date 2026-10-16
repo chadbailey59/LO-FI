@@ -34,8 +34,11 @@ def db(tmp_path):
 
 @pytest.fixture
 def stub_services(monkeypatch):
+    # Generic pipeline-shape tests run on cascade: split needs real LLM
+    # services (LLMWithBackend wraps them) and has its own dedicated tests.
+    monkeypatch.setenv("LOFI_ARCHITECTURE", "cascade")
     for name in ("build_stt", "build_llm", "build_tts", "build_vad_processor"):
-        monkeypatch.setattr(pipeline, name, lambda: FrameProcessor())
+        monkeypatch.setattr(pipeline, name, lambda *a, **kw: FrameProcessor())
 
 
 def fake_transport():
@@ -107,7 +110,7 @@ class EventfulLLM(FrameProcessor):
 
 def test_filler_registered_on_function_calls_started(db, monkeypatch, stub_services):
     monkeypatch.setenv("LOFI_RAG_DB", str(db))
-    monkeypatch.setattr(pipeline, "build_llm", EventfulLLM)
+    monkeypatch.setattr(pipeline, "build_llm", lambda *a, **kw: EventfulLLM())
     built = pipeline.build_pipeline(fake_transport())
     assert built.llm._event_handlers["on_function_calls_started"].handlers
 
@@ -140,7 +143,7 @@ def test_filler_handler_pushes_busy_message_and_filler(db, monkeypatch, stub_ser
             self.queued.append(frame)
 
     monkeypatch.setenv("LOFI_RAG_DB", str(db))
-    monkeypatch.setattr(pipeline, "build_llm", RecordingLLM)
+    monkeypatch.setattr(pipeline, "build_llm", lambda *a, **kw: RecordingLLM())
     monkeypatch.setattr(pipeline, "build_tts", RecordingTTS)
     built = pipeline.build_pipeline(fake_transport())
     handler = built.llm._event_handlers["on_function_calls_started"].handlers[0]
@@ -167,16 +170,6 @@ def test_llm_service_disables_reasoning():
     assert llm._settings.extra == {"extra_body": {"reasoning_effort": "none"}}
 
 
-def test_split_architecture_offers_the_delegate_tool(db, monkeypatch, stub_services):
-    from prompts import financial_advisor
-
-    monkeypatch.setenv("LOFI_RAG_DB", str(db))
-    monkeypatch.setenv("LOFI_ARCHITECTURE", "split")
-    built = pipeline.build_pipeline(fake_transport())
-    assert tool_names(built.context) == ["ask_financial_records"]
-    assert built.context.messages[0]["content"] == financial_advisor.FRONT_PROMPT
-
-
 def test_invalid_architecture_exits_with_guidance(db, monkeypatch, stub_services):
     monkeypatch.setenv("LOFI_RAG_DB", str(db))
     monkeypatch.setenv("LOFI_ARCHITECTURE", "sandwich")
@@ -192,13 +185,58 @@ def test_pipeline_includes_the_silence_watchdog(db, monkeypatch, stub_services):
     assert any(isinstance(p, SilenceWatchdog) for p in built.pipeline._processors)
 
 
-def test_observer_architecture_wires_the_observer_and_no_tools(db, monkeypatch, stub_services):
-    from observer_processor import RecordsObserver
-    from prompts import financial_advisor
+def test_split_architecture_builds_llm_with_backend(db, monkeypatch):
+    # Real LLM services (construction is offline); stub only STT/TTS/VAD.
+    from pipecat.pipeline.llm_with_backend import LLMWithBackend
 
+    from prompts import financial_advisor, records_analyst
+
+    for name in ("build_stt", "build_tts", "build_vad_processor"):
+        monkeypatch.setattr(pipeline, name, lambda: FrameProcessor())
+    monkeypatch.setenv("LOFI_ARCHITECTURE", "split")
     monkeypatch.setenv("LOFI_RAG_DB", str(db))
-    monkeypatch.setenv("LOFI_ARCHITECTURE", "observer")
     built = pipeline.build_pipeline(fake_transport())
+
+    # The front holds no records tools — delegate is a builtin, not a context tool.
     assert tool_names(built.context) == []
-    assert built.context.messages[0]["content"] == financial_advisor.OBSERVER_FRONT_PROMPT
-    assert any(isinstance(p, RecordsObserver) for p in built.pipeline._processors)
+    assert built.context.messages[0]["content"].startswith(financial_advisor.OFFLINE_INTRO)
+
+    lwb = next(p for p in built.pipeline._processors if isinstance(p, LLMWithBackend))
+    worker = lwb.backend
+    assert sorted(tool_names(worker.context)) == [
+        "aggregate", "filter_rows", "lookup", "semantic_search",
+    ]
+    backend_system = worker.context.messages[0]["content"]
+    assert records_analyst.SYSTEM_PROMPT in backend_system
+    assert "Today's date is" in backend_system
+
+
+def test_split_frontend_gets_domain_named_delegate(db, monkeypatch):
+    # qwen2.5:7b never calls a tool named "delegate" (measured 0%); renamed to
+    # a domain term it calls reliably — the connector installs it accordingly.
+    from pipecat.pipeline.llm_with_backend import LLMWithBackend
+
+    for name in ("build_stt", "build_tts", "build_vad_processor"):
+        monkeypatch.setattr(pipeline, name, lambda: FrameProcessor())
+    monkeypatch.setenv("LOFI_ARCHITECTURE", "split")
+    monkeypatch.setenv("LOFI_RAG_DB", str(db))
+    built = pipeline.build_pipeline(fake_transport())
+
+    lwb = next(p for p in built.pipeline._processors if isinstance(p, LLMWithBackend))
+    builtin = lwb.frontend.get_llm_adapter().builtin_tools
+    assert list(builtin) == ["ask_financial_records"]
+    assert "delegate" not in builtin
+
+
+def test_backend_transform_strips_think_and_is_awaitable(db):
+    import asyncio
+
+    from types import SimpleNamespace
+
+    worker = pipeline.build_records_backend(str(db))
+    transform = worker._transform_output
+    out = SimpleNamespace(text="<think>hmm</think>You spent $40.00.")
+    result = asyncio.run(transform(out))
+    assert result.text == "You spent $40.00."
+    only_think = SimpleNamespace(text="<think>all reasoning</think>")
+    assert asyncio.run(transform(only_think)) is None

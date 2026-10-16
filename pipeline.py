@@ -35,14 +35,14 @@ from pipecat.transports.base_transport import BaseTransport
 import ingest
 import store
 import tools
-from observer_processor import RecordsObserver
+from prompts import records_analyst
 from prompts.financial_advisor import (
-    FRONT_PROMPT,
-    OBSERVER_FRONT_PROMPT,
+    SPLIT_FRONT_PROMPT,
     hosted_variant,
     system_prompt,
 )
-from services import build_llm, build_stt, build_tts
+from rag_agent import grounded_question, strip_think
+from services import build_backend_llm, build_llm, build_stt, build_tts
 from silence_watchdog import SilenceWatchdog
 
 
@@ -86,24 +86,129 @@ def _index_ready(db_path) -> bool:
 
 
 def build_records_tools() -> list | None:
+    """Cascade only: the four tools go straight on the conversation model."""
     db_path = config.rag_db_path()
-    if config.architecture() == "observer" or not _index_ready(db_path):
+    if config.architecture() == "split" or not _index_ready(db_path):
         return None
     embedder = ingest.OllamaEmbedder(config.ollama_api_url(), config.embed_model())
-    if config.architecture() == "split":
-        return tools.build_delegate_tool(db_path, embedder)
     return tools.build_tools(db_path, embedder)
+
+
+DELEGATE_NAME = "ask_financial_records"
+
+
+# Pairing instruction sized for small local fronts (the stock one is written
+# for frontier models and drowns them — measured on qwen2.5:7b AND
+# nemotron-3-nano:4b: both stop tool-calling and narrate instead). Landmines
+# this wording deliberately avoids (see prompts/financial_advisor.py): worked
+# call examples, "never write X as text" clauses, and the word "Backend" —
+# each measured to break one small model or the other. Relay reliability comes
+# from the framework's per-message relay note.
+COMPACT_PAIRING_INSTRUCTION = (
+    "RECORDS HANDOFF: For ANY question about the user's transactions, spending, "
+    "merchants, amounts, dates, totals, balances, documents, or a follow-up to an "
+    f"earlier records answer, you MUST call the {DELEGATE_NAME} tool in that same "
+    "reply. Do not answer such questions yourself and never invent numbers. To "
+    "the user there is one assistant: you — never mention the analyst, tools, or "
+    "handoffs. The analyst's findings arrive later as internal conversation "
+    "messages; when one brings a result, tell the user what it says in your own "
+    "words, once. Internal progress or thinking notes are never read aloud and "
+    "never guessed from."
+)
+
+
+# Domain-worded tool description (same lever as the domain name: measured on
+# qwen2.5:7b, the stock "hand the conversation to the backend" description
+# loses to the model's credential-refusal reflex on passphrase questions —
+# this wording delegates them, incl. the saved-passphrase smoke doc, with
+# records/chitchat behavior unchanged). Keeps the transcript strategy's
+# semantics: one call per reply, no arguments, new request → new call.
+DOMAIN_TOOL_DESCRIPTION = (
+    "Look up anything in the user's own financial records and saved documents: "
+    "transactions, spending, income, accounts, merchants, amounts, dates, totals, "
+    "balances, and anything they saved in documents or notes, including a "
+    "passphrase or code they stored there. Call this as soon as any part of what "
+    "the user asks needs it, and do the rest yourself. One call per reply, however "
+    "many things the user asked for. It takes no arguments: the analyst reads the "
+    "conversation itself. A request the user makes after your last call needs a "
+    "call of its own, and so does anything the user says about work already handed "
+    "over. Keep talking with the user while it works."
+)
+
+
+def build_records_connector():
+    """BackendConnector tuned for a small local front model.
+
+    Measured on qwen2.5:7b: a tool literally named "delegate" is never called
+    (the model narrates instead), and the stock frontier-sized pairing
+    instruction suppresses calling entirely — a domain-named tool plus the
+    compact instruction (and front temperature 0, see build_pipeline) delegates
+    3/3. The tool description is domain-worded for the same reason (see
+    DOMAIN_TOOL_DESCRIPTION).
+    """
+    from pipecat.adapters.schemas.function_schema import FunctionSchema
+    from pipecat.pipeline.llm_with_backend import BackendConnector
+    from pipecat.services.llm_service import FunctionCallParams
+
+    class RecordsBackendConnector(BackendConnector):
+        @property
+        def tools(self):
+            async def handler(params: FunctionCallParams):
+                await self.delegate(params)
+
+            return [
+                FunctionSchema(
+                    name=DELEGATE_NAME,
+                    description=DOMAIN_TOOL_DESCRIPTION,
+                    properties=self.request_strategy.tool_parameters,
+                    required=self.request_strategy.tool_required,
+                    handler=handler,
+                ),
+            ]
+
+    return RecordsBackendConnector(
+        frontend_pairing_instruction=COMPACT_PAIRING_INSTRUCTION
+    )
+
+
+def build_records_backend(db_path):
+    """The split architecture's backend: a BackendLLMWorker holding the four
+    retrieval tools and the analyst prompt (+ per-session date grounding).
+    Thinking never reaches TTS: the worker renders output as spoken-or-note,
+    and transform_output strips any inline <think> blocks as a backstop."""
+    from pipecat.workers.llm.backend_llm_worker import BackendLLMWorker
+
+    embedder = ingest.OllamaEmbedder(config.ollama_api_url(), config.embed_model())
+    # grounded_question keeps grounding out of the system prompt for the native
+    # API's KV cache; here the backend context is built once per session, so
+    # folding grounding into the system message is equally cache-stable.
+    grounding = grounded_question("", db_path).rsplit("\nQuestion:", 1)[0]
+    backend_system = f"{records_analyst.SYSTEM_PROMPT}\n\n{grounding}"
+
+    async def _strip_think_output(output):
+        text = strip_think(output.text)
+        if not text:
+            return None
+        output.text = text
+        return output
+
+    return BackendLLMWorker(
+        llm=build_backend_llm(),
+        context=LLMContext(
+            messages=[{"role": "system", "content": backend_system}],
+            tools=tools.build_backend_tools(db_path, embedder),
+        ),
+        transform_output=_strip_think_output,
+    )
 
 
 def build_pipeline(transport: BaseTransport) -> BuiltBot:
     records_tools = build_records_tools()
     db_path = config.rag_db_path()
-    observing = config.architecture() == "observer" and _index_ready(db_path)
-    if observing:
-        prompt = OBSERVER_FRONT_PROMPT
-    elif records_tools and config.architecture() == "split":
-        # Grounding lives in the records agent's own prompt; the front only delegates.
-        prompt = FRONT_PROMPT
+    splitting = config.architecture() == "split" and _index_ready(db_path)
+    if splitting:
+        # The framework appends its own delegation guidance to this.
+        prompt = SPLIT_FRONT_PROMPT
     else:
         prompt = system_prompt(
             date_range=store.date_range(db_path) if records_tools else None,
@@ -118,10 +223,22 @@ def build_pipeline(transport: BaseTransport) -> BuiltBot:
     )
     user_aggregator, assistant_aggregator = LLMContextAggregatorPair(context)
 
-    llm = build_llm()
+    # Split front runs at temperature 0: delegation reliability on a 7B
+    # (measured 3/3 at 0, 2/3 at 0.7).
+    front = build_llm(temperature=0 if splitting else None)
+    if splitting:
+        from pipecat.pipeline.llm_with_backend import LLMWithBackend
+
+        llm = LLMWithBackend(
+            frontend=front,
+            backend=build_records_backend(db_path),
+            connector=build_records_connector(),
+        )
+    else:
+        llm = front
     tts = build_tts()
 
-    @llm.event_handler("on_function_calls_started")
+    @front.event_handler("on_function_calls_started")
     async def on_function_calls_started(service, function_calls):
         await service.push_frame(RTVIServerMessageFrame(data={"type": BUSY_MESSAGE_TYPE}))
         await tts.queue_frame(TTSSpeakFrame(FILLER_PHRASE))
@@ -132,14 +249,6 @@ def build_pipeline(transport: BaseTransport) -> BuiltBot:
         build_stt(),
         user_aggregator,
     ]
-    if observing:
-        processors.append(
-            RecordsObserver(
-                context,
-                db_path,
-                ingest.OllamaEmbedder(config.ollama_api_url(), config.embed_model()),
-            )
-        )
     pipeline = Pipeline(
         [
             *processors,

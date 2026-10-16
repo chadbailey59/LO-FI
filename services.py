@@ -114,8 +114,11 @@ def build_stt():
     )
 
 
-def build_llm():
+def build_llm(temperature: float | None = None):
     """Build the conversation LLM selected by ``LOFI_LLM_ENGINE``.
+
+    ``temperature``: optional override — the split front runs at 0 (measured:
+    qwen2.5:7b delegates 3/3 at temp 0 vs 2/3 at 0.7).
 
     ``ollama`` (default) is the local path. ``hosted`` points the same
     OpenAI-compatible client at LOFI_HOSTED_BASE_URL — front model only; the
@@ -142,22 +145,43 @@ def build_llm():
         base_url = config.hosted_base_url()
         logger.warning(f"HOSTED LLM: conversation goes to {base_url} ({config.llm_model()})")
         # Pick a non-reasoning hosted model; no Ollama reasoning_effort hack here.
+        hosted_settings = OpenAILLMService.Settings(model=config.llm_model())
+        if temperature is not None:
+            hosted_settings.temperature = temperature
         return OpenAILLMService(
-            settings=OpenAILLMService.Settings(model=config.llm_model()),
+            settings=hosted_settings,
             base_url=base_url,
             api_key=api_key,
         )
 
     from pipecat.services.ollama.llm import OLLamaLLMService
 
+    # Reasoning models (nemotron, qwen3) think silently for up to minutes
+    # before speakable text; "none" turns thinking off. No-op for
+    # non-reasoning models.
+    settings = OLLamaLLMService.Settings(
+        model=config.llm_model(),
+        extra={"extra_body": {"reasoning_effort": "none"}},
+    )
+    if temperature is not None:
+        settings.temperature = temperature
     return OLLamaLLMService(
-        # Reasoning models (nemotron, qwen3) think silently for up to minutes
-        # before speakable text; "none" turns thinking off. No-op for
-        # non-reasoning models.
-        settings=OLLamaLLMService.Settings(
-            model=config.llm_model(),
-            extra={"extra_body": {"reasoning_effort": "none"}},
-        ),
+        settings=settings,
+        base_url=config.ollama_base_url(),
+    )
+
+
+def build_backend_llm():
+    """The records backend's LLM (LOFI_RAG_LLM_MODEL, thinking allowed).
+
+    No reasoning-off override: the BackendLLMWorker renders model output as
+    spoken-or-note, so thinking never reaches TTS; pipeline.py additionally
+    strips any inline <think> blocks from backend output.
+    """
+    from pipecat.services.ollama.llm import OLLamaLLMService
+
+    return OLLamaLLMService(
+        settings=OLLamaLLMService.Settings(model=config.rag_llm_model()),
         base_url=config.ollama_base_url(),
     )
 

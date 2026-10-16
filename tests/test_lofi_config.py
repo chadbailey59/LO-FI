@@ -27,8 +27,8 @@ def test_config_message_reports_llm_engine(monkeypatch):
     assert _lofi_config_message()["llm_engine"] == "hosted"
 
 
-def test_observer_architecture_adds_analyst_row(monkeypatch):
-    monkeypatch.setenv("LOFI_ARCHITECTURE", "observer")
+def test_split_architecture_adds_analyst_row(monkeypatch):
+    monkeypatch.setenv("LOFI_ARCHITECTURE", "split")
     monkeypatch.setenv("LOFI_RAG_LLM_MODEL", "nemotron-3-nano:4b")
     message = _lofi_config_message()
     roles = [m["role"] for m in message["models"]]
@@ -58,6 +58,7 @@ def test_lofi_config_message_shape():
     message = _lofi_config_message()
     json.dumps(message)
     assert message["type"] == CONFIG_MESSAGE_TYPE == "lofi-config"
+    # Default architecture is split — the analyst backend gets its own row.
     assert [m["role"] for m in message["models"]] == [
         "STT",
         "LLM",
