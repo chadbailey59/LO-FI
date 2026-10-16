@@ -1,8 +1,8 @@
-# lofi — a local, fully-offline Pipecat voice bot
+# LO-FI — a local, fully-offline Pipecat voice AI bot
 
-> WIP but isn't everything?
+> WIP
 
-A voice bot that runs Key-Free & **100% offline**. Speech-to-text, the language model, 
+A voice AI bot that runs Key-Free & **100% offline**. Speech-to-text, the language model, 
 and text-to-speech are all local services, and the "transport†" is your machine's own
 audio hardware — the microphone and speakers.
 
@@ -305,7 +305,7 @@ new-tab button), then run the bare-Linux setup block from
 
 WSL shares the machine's RAM, and every resident model has to fit —
 `./configure.sh` profiles the machine and ranks model combos that fit (`-i`
-to pick interactively). The default pair (qwen2.5:7b front + qwen3:8b analyst)
+to pick interactively). The heavier analyst option (qwen2.5:7b front + qwen3:8b analyst)
 wants **16 GB+**. On a ~8 GB machine, drop to a single small model in
 `cascade` mode before prefetching:
 
@@ -458,7 +458,7 @@ all: they are local, period.
 | Component | Service | Notes |
 |---|---|---|
 | Speech-to-text | `WhisperSTTServiceMLX` *(default)* | Apple-Silicon-optimized Whisper via MLX. Alternatives via `LOFI_STT_ENGINE`: `faster_whisper` (CPU), `moonshine` (tiny CPU ONNX) |
-| Language model | `qwen2.5:7b` front + `qwen3:8b` records analyst *(defaults)* via **Ollama** | Local, OpenAI-compatible endpoint; env-configurable. The observer architecture's analyst (`LOFI_RAG_LLM_MODEL`) answers from your records. |
+| Language model | `qwen2.5:7b` front + `nemotron-3-nano:4b` records analyst *(defaults)* via **Ollama** | Local, OpenAI-compatible endpoint; env-configurable. The observer architecture's analyst (`LOFI_RAG_LLM_MODEL`) answers from your records. |
 | Text-to-speech | `KokoroTTSService` *(default)* | Natural local neural voice (kokoro-onnx). Alternative via `LOFI_TTS_ENGINE`: `piper` |
 | Turn-taking | Silero VAD | Barge-in / interruptions, fully local (bundled with Pipecat) |
 | Transport | `MoQ` (browser) | free echo cancellation via `getUserMedia`; needs Chrome/Edge |
@@ -508,7 +508,8 @@ Measured on an internal eval (28 gold queries incl. multi-turn, M4 Pro):
 
 | Config | RAM | Answer accuracy | Full lookup, mean |
 |---|---|---|---|
-| observer: `qwen2.5:7b` front + `qwen3:8b` analyst (default) | ≥ 16 GB | **0.93** | ~20 s accurate mode* |
+| observer: `qwen2.5:7b` front + `qwen3:8b` analyst | ≥ 16 GB | **0.93** | ~20 s accurate mode* |
+| observer: `qwen2.5:7b` front + `nemotron-3-nano:4b` analyst (default) | ≥ 12 GB | 0.79 | ~14 s accurate mode* |
 | observer: `qwen2.5:7b` front + `nemotron-3-nano:4b` analyst | ≥ 16 GB (8 GB with smaller STT) | 0.79 | ~14 s accurate mode* |
 | `qwen2.5:14b` cascade | ≥ 24 GB | 0.65 | ~8.2 s |
 | `qwen2.5:7b` cascade | ≥ 16 GB | 0.43 | ~4.0 s |
@@ -677,7 +678,7 @@ not something ollama reads.
 |---|---|---|
 | `LOFI_LLM_MODEL` | `qwen2.5:7b` | Ollama tag for the conversation model (and, in `cascade`, the four retrieval tools). Same string `run_ollama.sh` pulls and the bot serves. Smaller machines: see the model table above. |
 | `LOFI_ARCHITECTURE` | `observer` | `observer` (default) \| `cascade` \| `split` (retired) — see [Three architectures](#three-architectures-one-env-var). |
-| `LOFI_RAG_LLM_MODEL` | `qwen3:8b` | Ollama tag for the records analyst (`split`/`observer`) — the measured best (0.93 on the eval). `nemotron-3-nano:4b` on smaller machines. |
+| `LOFI_RAG_LLM_MODEL` | `nemotron-3-nano:4b` | Ollama tag for the records analyst (`split`/`observer`). `qwen3:8b` is the measured best (0.93 on the eval) for 16 GB+ machines. |
 | `LOFI_RAG_FAST_LLM_MODEL` | `$LOFI_RAG_LLM_MODEL` | Analyst model for the UI's ⚡ fast mode (thinking always off there). A *distinct* fast model needs `OLLAMA_MAX_LOADED_MODELS=4` so nothing gets evicted. |
 | `LOFI_LLM_ENGINE` | `ollama` | `ollama` (local) \| `hosted` (any OpenAI-compatible endpoint) — see [Going online](#going-online-the-hosted-llm-escape-hatch). |
 | `LOFI_HOSTED_BASE_URL` | `https://api.openai.com/v1` | Endpoint for `hosted` mode. Key comes from the shell env: `LOFI_HOSTED_API_KEY` (or `OPENAI_API_KEY`). |

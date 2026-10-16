@@ -176,7 +176,7 @@ DEFAULT_PIPER_VOICE = "en_US-lessac-medium"
 # The workshop-locked pair (swept 2026-10-13, evals/sweep.sh): obedient
 # non-thinking front + thinking analyst, observer architecture.
 DEFAULT_LLM_MODEL = "qwen2.5:7b"
-DEFAULT_RAG_LLM_MODEL = "qwen3:8b"
+DEFAULT_RAG_LLM_MODEL = "nemotron-3-nano:4b"
 DEFAULT_ARCHITECTURE = "observer"
 DEFAULT_OLLAMA_BASE_URL = "http://localhost:11434/v1"
 DEFAULT_EMBED_MODEL = "nomic-embed-text"
@@ -399,7 +399,8 @@ def rag_index_dir() -> str:
 
 def rag_llm_model() -> str:
     """Ollama tag for the records analyst (LOFI_RAG_LLM_MODEL, default
-    ``qwen3:8b`` — the measured best analyst; see evals/sweep.sh).
+    ``nemotron-3-nano:4b`` — fits beside the front in ~8GB; qwen3:8b is the
+    measured-best analyst for 16GB+ machines, see evals/sweep.sh).
 
     Set it to mix differently, e.g. LOFI_RAG_LLM_MODEL=nemotron-3-nano:4b on
     smaller machines, or the front model's own tag for one set of weights.
