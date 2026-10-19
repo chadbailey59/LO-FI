@@ -16,6 +16,7 @@ from pipecat.processors.frame_processor import FrameProcessor
 
 import ingest
 import pipeline
+import tools
 
 FIXTURES = Path(__file__).parent / "fixtures"
 TRANSACTIONS_CSV = FIXTURES / "transactions-small.csv"
@@ -240,3 +241,69 @@ def test_backend_transform_strips_think_and_is_awaitable(db):
     assert result.text == "You spent $40.00."
     only_think = SimpleNamespace(text="<think>all reasoning</think>")
     assert asyncio.run(transform(only_think)) is None
+
+
+def test_split_pipeline_includes_backend_tool_panel(db, monkeypatch):
+    for name in ("build_stt", "build_tts", "build_vad_processor"):
+        monkeypatch.setattr(pipeline, name, lambda: FrameProcessor())
+    monkeypatch.setenv("LOFI_ARCHITECTURE", "split")
+    monkeypatch.setenv("LOFI_RAG_DB", str(db))
+    built = pipeline.build_pipeline(fake_transport())
+    assert any(isinstance(p, pipeline.BackendToolPanel) for p in built.pipeline._processors)
+
+
+def test_cascade_pipeline_has_no_backend_tool_panel(db, monkeypatch, stub_services):
+    monkeypatch.setenv("LOFI_ARCHITECTURE", "cascade")
+    monkeypatch.setenv("LOFI_RAG_DB", str(db))
+    built = pipeline.build_pipeline(fake_transport())
+    assert not any(isinstance(p, pipeline.BackendToolPanel) for p in built.pipeline._processors)
+
+
+def test_backend_tool_panel_renders_lofi_rag_message(db):
+    import asyncio
+
+    from pipecat.frames.frames import (
+        ExternalFunctionCall,
+        ExternalFunctionCallResultFrame,
+        ExternalFunctionCallsStartedFrame,
+    )
+    from pipecat.processors.frame_processor import FrameDirection
+    from pipecat.processors.frameworks.rtvi.frames import RTVIServerMessageFrame
+
+    panel = pipeline.BackendToolPanel()
+    pushed = []
+
+    async def record(frame, *args, **kwargs):
+        pushed.append(frame)
+
+    panel.push_frame = record
+
+    async def run():
+        await panel.process_frame(
+            ExternalFunctionCallsStartedFrame(
+                function_calls=[ExternalFunctionCall("semantic_search", "call-1")]
+            ),
+            FrameDirection.DOWNSTREAM,
+        )
+        await panel.process_frame(
+            ExternalFunctionCallResultFrame(
+                function_name="semantic_search",
+                tool_call_id="call-1",
+                arguments={"query": "secret passphrase"},
+                result={"results": [{"source": "x.txt", "page": None, "text": "hi"}]},
+            ),
+            FrameDirection.DOWNSTREAM,
+        )
+
+    asyncio.run(run())
+    rag = [
+        f for f in pushed
+        if isinstance(f, RTVIServerMessageFrame) and f.data.get("type") == tools.RAG_MESSAGE_TYPE
+    ]
+    assert len(rag) == 1
+    data = rag[0].data
+    assert data["tool"] == "semantic_search"
+    assert data["args"] == {"query": "secret passphrase"}
+    assert data["count"] == 1
+    assert data["chunks"] == [{"source": "x.txt", "page": None, "text": "hi"}]
+    assert data["elapsed_ms"] >= 0

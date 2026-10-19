@@ -112,11 +112,11 @@ composer.addEventListener("submit", async (event) => {
   }
 });
 
-// No WebTransport (Safari/Firefox) is no longer fatal — pickTransport already
-// selected WebRTC; the banner just says so.
-if (typeof WebTransport === "undefined") {
+// MoQ requested (?transport=moq) on a browser without WebTransport
+// (Safari/Firefox): warn — the connect will fail and fall back to webrtc.
+if (transportName === "moq" && typeof WebTransport === "undefined") {
   webtransportBanner.textContent =
-    "This browser has no WebTransport, so lofi is using the WebRTC transport instead.";
+    "This browser has no WebTransport, so MoQ can't connect — it will fall back to WebRTC.";
   webtransportBanner.hidden = false;
 }
 

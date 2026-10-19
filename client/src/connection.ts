@@ -9,14 +9,15 @@ export type TransportName = "moq" | "webrtc" | "websocket";
 
 const TRANSPORT_NAMES: TransportName[] = ["moq", "webrtc", "websocket"];
 
-// ?transport=moq|webrtc|websocket wins; otherwise MoQ where WebTransport
-// exists and WebRTC everywhere else (Safari/Firefox). websocket is the pure-TCP
-// last resort (Windows/WSL2, where neither QUIC nor WebRTC's UDP media cross
-// the boundary) — reached via the auto-fallback chain or the URL param.
+// ?transport=moq|webrtc|websocket wins; otherwise websocket — pure TCP, no
+// FFI, works on every platform including Windows/WSL2 (where neither QUIC nor
+// WebRTC's UDP media cross the boundary). MoQ and WebRTC stay reachable via
+// the URL param; the auto-fallback chain still walks moq → webrtc → websocket
+// when a param-selected transport fails.
 export function pickTransport(): TransportName {
   const param = new URLSearchParams(window.location.search).get("transport");
   if (TRANSPORT_NAMES.includes(param as TransportName)) return param as TransportName;
-  return typeof WebTransport === "undefined" ? "webrtc" : "moq";
+  return "websocket";
 }
 
 function buildTransport(transportName: TransportName) {

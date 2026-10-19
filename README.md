@@ -6,9 +6,9 @@ A voice bot that runs Key-Free & **100% offline**. Speech-to-text, the language 
 and text-to-speech are all local services, and the "transport†" is your machine's own
 audio hardware — the microphone and speakers.
 
-Built on [Pipecat](https://github.com/pipecat-ai/pipecat) **main** (pre-1.13,
-installed straight from git — see below): the split architecture rides
-`LLMWithBackend`/`BackendLLMWorker`, which haven't shipped in a release yet.
+Built on [Pipecat](https://github.com/pipecat-ai/pipecat) **≥ 1.13**: the
+split architecture rides `LLMWithBackend`/`BackendLLMWorker`, which first
+shipped in that release.
 This repo is meant to double as a clear, reproducible **example** of how to
 wire up a fully-local Pipecat bot.
 
@@ -38,11 +38,8 @@ solve a problem like echo cancellation?"
   which platform lost a wheel.
   The one exception is PyAudio, which has no macOS/Linux wheels — so it is an
   opt-in extra (`--extra local-audio`) needed only by the headphones front-end.
-- **Pipecat comes from git main**, not PyPI: `pyproject.toml` points uv at
-  `github.com/pipecat-ai/pipecat@main` because the split architecture's
-  building blocks (`LLMWithBackend`, `BackendLLMWorker`) are newer than the
-  latest release (1.12). The first `uv sync` clones that repo, so it needs
-  network; the pin moves to `>=1.13` the moment that release ships. Note:
+- **Pipecat is pinned `>=1.13,<1.14`** — the first release carrying the split
+  architecture's building blocks (`LLMWithBackend`, `BackendLLMWorker`). Note:
   pipecat ≥ 1.8 drops Intel-mac wheels entirely (its core dep `loudness`
   ships none) — **Intel macs use the frozen [`intel-mac` branch](../../tree/intel-mac)**
   (pipecat 1.7, cascade + all three transports).
@@ -72,7 +69,7 @@ Ctrl+C; then turn off wi-fi if you want to show off and then:
 ```bash
 ./lofi.sh start
 ```
-Open http://localhost:7860 in Chrome or Edge (the MoQ transport needs WebTransport), click Connect & have a conversation.
+Open http://localhost:7860 in any browser, click Connect & have a conversation.
 
 Or...
 
@@ -123,8 +120,8 @@ uv sync
 
 > [!NOTE]
 > **On Windows?** The whole walkthrough — WSL2 install link, RAM-sized model
-> picks, the `?transport=websocket` URL and why it's required — lives in
-> [Running on Windows](#running-on-windows).
+> picks, why WebSocket is the only transport that crosses the WSL2 boundary —
+> lives in [Running on Windows](#running-on-windows).
 
 That is all you need for the browser front-ends. For the headphones front-end
 (`bot.py`), PyAudio has to compile against PortAudio, so install it and opt into
@@ -272,17 +269,16 @@ uv run python scripts/prefetch_models.py
 uv run python bot_moq.py --host localhost --port 7860
 ```
 
-Then open **`http://localhost:7860/?transport=websocket`** in Chrome or Edge,
-Connect, allow the mic, talk. Env vars in PowerShell are session-scoped
-assignments, e.g.:
+Then open **`http://localhost:7860`** in any browser,
+Connect, allow the mic, talk — WebSocket is the default transport.
+Env vars in PowerShell are session-scoped assignments, e.g.:
 
 ```powershell
 $env:LOFI_LLM_MODEL = "llama3.2:1b"
 $env:LOFI_ARCHITECTURE = "cascade"
 ```
 
-The explicit `?transport=websocket` skips the fallback chain's wasted
-attempts (MoQ isn't offered natively). Optional: `uv sync --extra webrtc`
+Optional: `uv sync --extra webrtc`
 enables `?transport=webrtc` — native loopback UDP works, unlike WSL2, so
 WebRTC's Opus-encoded path is available here.
 
@@ -336,19 +332,19 @@ records-accuracy wants the 16 GB tier — the
 ```
 
 (`lofi.sh` detects WSL and skips its browser auto-open — the right browser is
-on the Windows side.) Then, in **Chrome or Edge on Windows**, open:
+on the Windows side.) Then, in **a browser on Windows**, open:
 
 ```
-http://localhost:7860/?transport=websocket
+http://localhost:7860
 ```
 
-Click **Connect**, allow the mic, talk. The `?transport=websocket` matters:
-MoQ's QUIC and WebRTC's media are both UDP, which never crosses the
-Windows↔WSL boundary (verified in NAT and mirrored modes, Hyper-V firewall
-open, raw-UDP probe) — the WebSocket transport is pure TCP and crosses the
-boundary the same way the web page itself does. With no param the client
-walks the fallback chain (moq → webrtc → websocket) on its own, it just
-spends ~15–30 s failing before it lands.
+Click **Connect**, allow the mic, talk. WebSocket — the default transport —
+is the only one that works here: MoQ's QUIC and WebRTC's media are both UDP,
+which never crosses the Windows↔WSL boundary (verified in NAT and mirrored
+modes, Hyper-V firewall open, raw-UDP probe). The WebSocket transport is pure
+TCP and crosses the boundary the same way the web page itself does. Don't
+force `?transport=moq` or `?transport=webrtc` here — each spends ~15–30 s
+failing before the fallback chain lands back on websocket.
 
 ### Windows troubleshooting
 
@@ -390,25 +386,23 @@ the bot won't keep interrupting itself.
 Another fantastic workaround is to use a browser. Not the internet, just the web 
 browser. Do this and 🎉, you have echo cancellation.
 
-The browser transport here is MoQ over QUIC — same offline brain, different
-transport. `./lofi.sh start` brings up Ollama and serves a local page (still
+`./lofi.sh start` brings up Ollama and serves a local page (still
 fully offline — the browser talks to the bot over loopback, no internet):
 
 ```bash
-./lofi.sh start    # MoQ/QUIC → open http://localhost:7860 in Chrome/Edge
+./lofi.sh start    # open http://localhost:7860 in any browser
 ```
 
-MoQ uses WebTransport, which Safari and Firefox don't ship yet. The same bot
-also serves two fallbacks, and the client walks the chain automatically when a
-connect fails (**moq → webrtc → websocket**), or you can force one with
-`?transport=webrtc` / `?transport=websocket`:
+The default browser transport is **WebSocket** — pure TCP, works in every
+browser and across every boundary (including Windows↔WSL2, where UDP never
+crosses). The same bot serves two more, forced with `?transport=moq` /
+`?transport=webrtc`; a param-forced transport that fails to connect falls
+back automatically (**moq → webrtc → websocket**):
 
-- **SmallWebRTC** (`uv sync --extra webrtc`): picked automatically when
-  WebTransport is missing (Safari/Firefox).
-- **WebSocket** (always available): the pure-TCP last resort — the one that
-  works from a Windows browser to a bot inside WSL2, where neither QUIC nor
-  WebRTC's UDP media can cross. See
-  [Running on Windows](#running-on-windows).
+- **MoQ over QUIC** (`?transport=moq`): media-over-QUIC via WebTransport,
+  which Safari and Firefox don't ship yet (Chrome/Edge only).
+- **SmallWebRTC** (`?transport=webrtc`, `uv sync --extra webrtc`): the
+  classic voice-bot transport, UDP media over loopback.
 
 ---
 
@@ -468,7 +462,7 @@ all: they are local, period.
 | Language model | `qwen2.5:7b` front + `qwen3:8b` records analyst *(defaults)* via **Ollama** | Local, OpenAI-compatible endpoint; env-configurable. The split architecture's analyst backend (`LOFI_RAG_LLM_MODEL`) answers from your records. |
 | Text-to-speech | `KokoroTTSService` *(default)* | Natural local neural voice (kokoro-onnx). Alternative via `LOFI_TTS_ENGINE`: `piper` |
 | Turn-taking | Silero VAD | Barge-in / interruptions, fully local (bundled with Pipecat) |
-| Transport | `MoQ` (browser) | free echo cancellation via `getUserMedia`; needs Chrome/Edge |
+| Transport | `WebSocket` (browser) *(default)* | free echo cancellation via `getUserMedia`; works in any browser. `?transport=moq` / `?transport=webrtc` opt into the others |
 | Alternative transport | `LocalAudioTransport` | PyAudio mic + speaker I/O (requires headphones) |
 
 ---
@@ -741,7 +735,7 @@ never touches a bot file you may have customized.
 ```
 lofi/
 ├── bot.py                    # CLI / headphones — LocalAudioTransport
-├── bot_moq.py                # browser / speakers — MoQ over QUIC, serves client/dist
+├── bot_moq.py                # browser bot — websocket/moq/webrtc, serves client/dist
 ├── pipeline.py               # the one build_pipeline() every bot shares
 ├── services.py               # STT/LLM/TTS builders, engine-dispatched
 ├── config.py                 # env-driven settings, zero-config defaults

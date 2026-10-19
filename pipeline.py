@@ -12,6 +12,7 @@ Bot files keep only what differs per transport: transport construction, prefligh
 greeting, and runner glue.
 """
 
+import time
 from dataclasses import dataclass
 
 # config FIRST — sets HF_HOME / Kokoro cache paths before any pipecat/HF import (see config.py).
@@ -20,8 +21,14 @@ import config
 from loguru import logger
 from pipecat.audio.vad.silero import SileroVADAnalyzer
 from pipecat.audio.vad.vad_analyzer import VADParams
-from pipecat.frames.frames import TTSSpeakFrame
+from pipecat.frames.frames import (
+    ExternalFunctionCallCancelFrame,
+    ExternalFunctionCallResultFrame,
+    ExternalFunctionCallsStartedFrame,
+    TTSSpeakFrame,
+)
 from pipecat.pipeline.pipeline import Pipeline
+from pipecat.processors.frame_processor import FrameDirection, FrameProcessor
 from pipecat.processors.frameworks.rtvi.frames import RTVIServerMessageFrame
 from pipecat.processors.aggregators.llm_context import LLMContext
 from pipecat.processors.aggregators.llm_response_universal import (
@@ -202,6 +209,50 @@ def build_records_backend(db_path):
     )
 
 
+class BackendToolPanel(FrameProcessor):
+    """Mirrors the backend worker's tool calls into the UI's lofi-rag panel.
+
+    The backend's handlers run outside the pipeline, so they can't push RTVI
+    frames themselves; LLMWithBackend re-announces each call downstream as
+    ExternalFunctionCall*Frames. Render each final result as the same lofi-rag
+    message the cascade handlers send (tools.build_tools)."""
+
+    def __init__(self):
+        super().__init__()
+        self._started: dict[str, float] = {}
+
+    async def process_frame(self, frame, direction: FrameDirection):
+        await super().process_frame(frame, direction)
+        if isinstance(frame, ExternalFunctionCallsStartedFrame):
+            for call in frame.function_calls:
+                self._started[call.tool_call_id] = time.perf_counter()
+        elif isinstance(frame, ExternalFunctionCallCancelFrame):
+            self._started.pop(frame.tool_call_id, None)
+        elif isinstance(frame, ExternalFunctionCallResultFrame) and frame.is_final:
+            started = self._started.pop(frame.tool_call_id, None)
+            result = frame.result if isinstance(frame.result, dict) else {}
+            args = frame.arguments if isinstance(frame.arguments, dict) else {}
+            elapsed_ms = result.get(
+                "elapsed_ms",
+                round((time.perf_counter() - started) * 1000, 2) if started else 0,
+            )
+            await self.push_frame(
+                RTVIServerMessageFrame(
+                    data={
+                        "type": tools.RAG_MESSAGE_TYPE,
+                        "tool": frame.function_name,
+                        "args": args,
+                        "count": tools._result_count(result),
+                        "elapsed_ms": elapsed_ms,
+                        "chunks": result.get("results", [])
+                        if frame.function_name == "semantic_search"
+                        else [],
+                    }
+                )
+            )
+        await self.push_frame(frame, direction)
+
+
 def build_pipeline(transport: BaseTransport) -> BuiltBot:
     records_tools = build_records_tools()
     db_path = config.rag_db_path()
@@ -253,6 +304,7 @@ def build_pipeline(transport: BaseTransport) -> BuiltBot:
         [
             *processors,
             llm,
+            *([BackendToolPanel()] if splitting else []),
             SilenceWatchdog(),
             tts,
             transport.output(),

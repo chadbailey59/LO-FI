@@ -32,7 +32,7 @@ from pipecat.transports.base_transport import BaseTransport
 try:
     from pipecat.transports.moq.transport import MOQParams, MOQTransportClient
 
-    # TEMP upstream-bug patch (pipecat git main, dev628): a barge-in's
+    # TEMP upstream-bug patch (present through pipecat 1.13.0): a barge-in's
     # reset_audio_pacing() nulls _publish_audio_clock during publish_audio's
     # pacing sleep; the += on wake raises TypeError (None + float) and the
     # frame is dropped ("Error writing audio frame"). Retry once with the
