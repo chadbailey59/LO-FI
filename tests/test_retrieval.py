@@ -209,3 +209,24 @@ def test_lte_date_prefix_includes_the_whole_period(db):
     )
     assert result["rows"]
     assert result["rows"][0]["date"].startswith("2025-02")
+
+
+def test_filter_rows_extra_filters_narrow_the_match(db):
+    # Merchant condition + date-range condition in `filters` — the shape a
+    # "merchant X in month Y" question needs (single-condition calls made the
+    # analyst invent unsupported arg shapes and loop).
+    unfiltered = retrieval.filter_rows(
+        db, column="merchant", operator="eq", value="Whole Foods Co-op", limit=5
+    )
+    result = retrieval.filter_rows(
+        db,
+        column="merchant",
+        operator="eq",
+        value="Whole Foods Co-op",
+        filters=[{"column": "date", "operator": "between", "value": "2025-03", "value2": "2025-03"}],
+        limit=5,
+    )
+    assert result["rows"]
+    assert len(result["rows"]) < len(unfiltered["rows"])
+    assert all(r["merchant"] == "Whole Foods Co-op" for r in result["rows"])
+    assert all(r["date"].startswith("2025-03") for r in result["rows"])

@@ -307,3 +307,100 @@ def test_backend_tool_panel_renders_lofi_rag_message(db):
     assert data["count"] == 1
     assert data["chunks"] == [{"source": "x.txt", "page": None, "text": "hi"}]
     assert data["elapsed_ms"] >= 0
+
+
+def test_spoken_backend_output_renders_without_relay_note():
+    # Ollama maps developer-role notes to USER messages; the stock RELAY_NOTE
+    # then re-triggers the relay on every later turn (measured: the front
+    # repeats the old result instead of delegating the new question).
+    from pipecat.pipeline.llm_with_backend import BACKEND_MESSAGE_PREFIX
+
+    connector = pipeline.build_records_connector()
+
+    spoken = SimpleNamespace(text="You spent $40.00.", prefers_spoken=True, is_thought=False)
+    message = connector.render_output(spoken)
+    assert message["content"] == f"{BACKEND_MESSAGE_PREFIX}You spent $40.00."
+    assert "Relay this" not in message["content"]
+    assert message["role"] == "developer"
+
+    note = SimpleNamespace(text="checked rows", prefers_spoken=False, is_thought=False)
+    assert "Relay this" not in connector.render_output(note)["content"]
+
+
+def test_backend_transform_strips_markdown(db):
+    import asyncio
+
+    worker = pipeline.build_records_backend(str(db))
+    out = SimpleNamespace(text="It is **BLUE MANATEE 436921**, in *passphrase-smoke.txt* (`data/`).")
+    assert asyncio.run(worker._transform_output(out)).text == (
+        "It is BLUE MANATEE 436921, in passphrase-smoke.txt (data/)."
+    )
+
+
+class RecordingTTSService(FrameProcessor):
+    def __init__(self):
+        super().__init__()
+        self.queued = []
+
+    async def queue_frame(self, frame, *args, **kwargs):
+        self.queued.append(frame)
+
+
+def test_cascade_filler_is_spoken_but_kept_out_of_context(db, monkeypatch, stub_services):
+    import asyncio
+
+    from pipecat.frames.frames import TTSSpeakFrame
+
+    monkeypatch.setenv("LOFI_RAG_DB", str(db))
+    monkeypatch.setattr(pipeline, "build_llm", lambda *a, **kw: EventfulLLM())
+    monkeypatch.setattr(pipeline, "build_tts", RecordingTTSService)
+    built = pipeline.build_pipeline(fake_transport())
+    handler = built.llm._event_handlers["on_function_calls_started"].handlers[0]
+    asyncio.run(handler(built.llm, []))
+
+    fillers = [f for f in built.tts.queued if isinstance(f, TTSSpeakFrame)]
+    assert [f.text for f in fillers] == [pipeline.FILLER_PHRASE]
+    # Canned waiting lines in the context teach a small front model to answer
+    # with waiting lines (and then invent results) instead of delegating.
+    assert fillers[0].append_to_context is False
+
+
+def test_split_speaks_no_canned_filler(db, monkeypatch):
+    import asyncio
+
+    from pipecat.frames.frames import TTSSpeakFrame
+
+    for name in ("build_stt", "build_vad_processor"):
+        monkeypatch.setattr(pipeline, name, lambda: FrameProcessor())
+    monkeypatch.setattr(pipeline, "build_tts", RecordingTTSService)
+    monkeypatch.setenv("LOFI_ARCHITECTURE", "split")
+    monkeypatch.setenv("LOFI_RAG_DB", str(db))
+    built = pipeline.build_pipeline(fake_transport())
+
+    front = built.llm.frontend
+    handler = front._event_handlers["on_function_calls_started"].handlers[0]
+    asyncio.run(handler(front, []))
+    assert not any(isinstance(f, TTSSpeakFrame) for f in built.tts.queued)
+
+
+def test_watchdog_reminder_skips_context():
+    import asyncio
+
+    from pipecat.frames.frames import TTSSpeakFrame
+
+    from silence_watchdog import SilenceWatchdog
+
+    watchdog = SilenceWatchdog(interval_secs=0.01, max_reminders=1)
+    pushed = []
+
+    async def record(frame, *args, **kwargs):
+        pushed.append(frame)
+
+    watchdog.push_frame = record
+
+    async def run():
+        await watchdog._remind()
+
+    asyncio.run(run())
+    reminders = [f for f in pushed if isinstance(f, TTSSpeakFrame)]
+    assert reminders and all(f.append_to_context is False for f in reminders)

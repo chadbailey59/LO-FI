@@ -88,4 +88,7 @@ class SilenceWatchdog(FrameProcessor):
     async def _remind(self) -> None:
         for _ in range(self._max_reminders):
             await asyncio.sleep(self._interval_secs)
-            await self.push_frame(TTSSpeakFrame(self._phrase))
+            # Spoken only — reminder lines in the LLM context teach a small
+            # front model to answer with waiting lines (and then invent a
+            # result) instead of delegating; measured on the 2026-10-19 logs.
+            await self.push_frame(TTSSpeakFrame(self._phrase, append_to_context=False))

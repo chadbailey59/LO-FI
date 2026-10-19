@@ -154,6 +154,7 @@ def filter_rows(
     operator: str,
     value,
     value2=None,
+    filters: list[dict] | None = None,
     order_by: str = "date",
     descending: bool = True,
     limit: int = 5,
@@ -163,15 +164,31 @@ def filter_rows(
     conn = store.connect(db_path)
     try:
         clause, params = _filter_clause(column, operator, value, value2)
+        extra_clauses: list[str] = []
+        extra_params: list = []
+        for f in filters or []:
+            f_clause, f_params = _filter_clause(
+                f["column"], f["operator"], f["value"], f.get("value2")
+            )
+            extra_clauses.append(f_clause)
+            extra_params.extend(f_params)
+        where_sql = " and ".join([clause, *extra_clauses])
         order_sql = ORDER_SQL.get(order_by, "date")
         direction = "desc" if descending else "asc"
-        query = f"{SELECT_ROW_SQL} where {clause} order by {order_sql} {direction} limit ?"
-        rows = [_row_to_dict(r) for r in conn.execute(query, [*params, limit]).fetchall()]
+        query = f"{SELECT_ROW_SQL} where {where_sql} order by {order_sql} {direction} limit ?"
+        rows = [
+            _row_to_dict(r)
+            for r in conn.execute(query, [*params, *extra_params, limit]).fetchall()
+        ]
 
         if not rows and column == "category" and operator == "eq":
             like_clause, like_params = _filter_clause("category", "contains", value)
-            like_query = f"{SELECT_ROW_SQL} where {like_clause} order by {order_sql} {direction} limit ?"
-            rows = [_row_to_dict(r) for r in conn.execute(like_query, [*like_params, limit]).fetchall()]
+            like_where = " and ".join([like_clause, *extra_clauses])
+            like_query = f"{SELECT_ROW_SQL} where {like_where} order by {order_sql} {direction} limit ?"
+            rows = [
+                _row_to_dict(r)
+                for r in conn.execute(like_query, [*like_params, *extra_params, limit]).fetchall()
+            ]
             if not rows:
                 hint = _category_hint(conn, value)
                 elapsed_ms = _elapsed_ms(start)

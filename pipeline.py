@@ -12,6 +12,7 @@ Bot files keep only what differs per transport: transport construction, prefligh
 greeting, and runner glue.
 """
 
+import re
 import time
 from dataclasses import dataclass
 
@@ -128,13 +129,18 @@ COMPACT_PAIRING_INSTRUCTION = (
 # qwen2.5:7b, the stock "hand the conversation to the backend" description
 # loses to the model's credential-refusal reflex on passphrase questions —
 # this wording delegates them, incl. the saved-passphrase smoke doc, with
-# records/chitchat behavior unchanged). Keeps the transcript strategy's
+# records/chitchat behavior unchanged). The arithmetic sentence routes "what's
+# that total?" follow-ups to the analyst's aggregate SQL — without it the 7B
+# adds the amounts itself and miscarries digits (measured 2026-10-19: $301.81
+# spoken as "three hundred and61.81"). Keeps the transcript strategy's
 # semantics: one call per reply, no arguments, new request → new call.
 DOMAIN_TOOL_DESCRIPTION = (
     "Look up anything in the user's own financial records and saved documents: "
     "transactions, spending, income, accounts, merchants, amounts, dates, totals, "
     "balances, and anything they saved in documents or notes, including a "
-    "passphrase or code they stored there. Call this as soon as any part of what "
+    "passphrase or code they stored there. All arithmetic is its job too: a "
+    "total, sum, difference, or average, even over amounts already said in "
+    "this conversation. Call this as soon as any part of what "
     "the user asks needs it, and do the rest yourself. One call per reply, however "
     "many things the user asked for. It takes no arguments: the analyst reads the "
     "conversation itself. A request the user makes after your last call needs a "
@@ -154,7 +160,7 @@ def build_records_connector():
     DOMAIN_TOOL_DESCRIPTION).
     """
     from pipecat.adapters.schemas.function_schema import FunctionSchema
-    from pipecat.pipeline.llm_with_backend import BackendConnector
+    from pipecat.pipeline.llm_with_backend import BACKEND_MESSAGE_PREFIX, BackendConnector
     from pipecat.services.llm_service import FunctionCallParams
 
     class RecordsBackendConnector(BackendConnector):
@@ -173,9 +179,30 @@ def build_records_connector():
                 ),
             ]
 
+        # Ollama has no developer role, so backend notes reach the front as
+        # USER messages — the stock per-message RELAY_NOTE then reads as a
+        # standing user demand, and the 7B front re-relays the old result on
+        # every later turn instead of delegating the new question (measured,
+        # 2026-10-19 stuck session: stock note never delegates the follow-up;
+        # bare "Backend:" message delegates; arrival-turn relay unaffected —
+        # the compact pairing instruction already says to relay results once).
+        def render_output(self, output):
+            message = super().render_output(output)
+            if message is not None and output.prefers_spoken and not output.is_thought:
+                message = dict(message, content=f"{BACKEND_MESSAGE_PREFIX}{output.text}")
+            return message
+
     return RecordsBackendConnector(
         frontend_pairing_instruction=COMPACT_PAIRING_INSTRUCTION
     )
+
+
+_MARKDOWN_EMPHASIS = re.compile(r"[*_]{1,3}([^*_]+?)[*_]{1,3}|`([^`]+)`")
+
+
+def strip_markdown(text: str) -> str:
+    """Drop emphasis/code markers the analyst sometimes adds — TTS reads them."""
+    return _MARKDOWN_EMPHASIS.sub(lambda m: m.group(1) or m.group(2), text)
 
 
 def build_records_backend(db_path):
@@ -193,7 +220,7 @@ def build_records_backend(db_path):
     backend_system = f"{records_analyst.SYSTEM_PROMPT}\n\n{grounding}"
 
     async def _strip_think_output(output):
-        text = strip_think(output.text)
+        text = strip_markdown(strip_think(output.text))
         if not text:
             return None
         output.text = text
@@ -292,7 +319,13 @@ def build_pipeline(transport: BaseTransport) -> BuiltBot:
     @front.event_handler("on_function_calls_started")
     async def on_function_calls_started(service, function_calls):
         await service.push_frame(RTVIServerMessageFrame(data={"type": BUSY_MESSAGE_TYPE}))
-        await tts.queue_frame(TTSSpeakFrame(FILLER_PHRASE))
+        # Split: the front narrates its own handoff — a canned filler on top
+        # is one of three stacked "let me check" lines, and in the context it
+        # teaches the front to answer with waiting lines (measured 2026-10-19).
+        # Cascade: the model is silent during the tool call, so speak it, but
+        # keep it out of the context for the same reason.
+        if not splitting:
+            await tts.queue_frame(TTSSpeakFrame(FILLER_PHRASE, append_to_context=False))
 
     processors = [
         transport.input(),

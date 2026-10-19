@@ -74,8 +74,9 @@ PARAMS = {
     },
     "filter_rows": {
         "description": (
-            "List transactions matching one condition on a column, sorted by "
-            "date or amount. Use for questions like the biggest expenses in a month."
+            "List transactions matching a condition on a column, sorted by "
+            "date or amount. Use for questions like the biggest expenses in a "
+            "month. Add more conditions (a date range, a category) in filters."
         ),
         "properties": {
             "column": {"type": "string", "enum": _COLUMNS, "description": "Column to filter on."},
@@ -90,6 +91,11 @@ PARAMS = {
             "value2": {
                 "type": "string",
                 "description": "Upper bound, for the between operator only.",
+            },
+            "filters": {
+                "type": "array",
+                "description": "Up to two more conditions, all of which must match.",
+                "items": _FILTER_ITEM,
             },
             "order_by": {
                 "type": "string",
