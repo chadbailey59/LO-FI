@@ -21,7 +21,7 @@ weight locally. What it fetches:
 
 Config knobs (env or ./.env, all optional — sensible defaults):
     LOFI_MODEL_DIR            the one directory all models go in  (default ./models)
-    LOFI_LLM_MODEL            Ollama tag for the pipeline LLM     (default qwen2.5:14b)
+    LOFI_LLM_MODEL            Ollama tag for the pipeline LLM     (default qwen2.5:7b)
     LOFI_EMBED_MODEL          Ollama tag for RAG embeddings       (default nomic-embed-text)
     LOFI_STT_ENGINE           whisper_mlx | faster_whisper | moonshine
     LOFI_WHISPER_MODEL        MLXModel member name                (default LARGE_V3_TURBO)

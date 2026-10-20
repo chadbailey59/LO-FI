@@ -124,8 +124,8 @@ LLM_CATALOG=(
   "qwen2.5:0.5b|1|"
   "qwen2.5:1.5b|1|"
   "qwen2.5:3b|2|"
-  "qwen2.5:7b|5|"
-  "qwen2.5:14b|10|project default, "
+  "qwen2.5:7b|5|project default, "
+  "qwen2.5:14b|10|"
   "qwen2.5:32b|20|"
   "qwen2.5:72b|47|"
   "qwen3:0.6b|1|hybrid thinking"
@@ -940,9 +940,10 @@ if (( INTERACTIVE )); then
   print_slot_reccos llm
   print_catalog_table numbered
   OLD_IFS="$IFS"; IFS=$'\n'; CATALOG_ROWS=( $(sorted_catalog_rows) ); IFS="$OLD_IFS"
-  read -r -p "choose LLM [default ${LOFI_LLM_MODEL:-qwen2.5:14b}]: " ans || ans=""
+  # must match tunables.DEFAULT_LLM_MODEL (shell can't import Python)
+  read -r -p "choose LLM [default ${LOFI_LLM_MODEL:-qwen2.5:7b}]: " ans || ans=""
   if [[ -z "$ans" ]]; then
-    CHOSEN_LLM="${LOFI_LLM_MODEL:-qwen2.5:14b}"
+    CHOSEN_LLM="${LOFI_LLM_MODEL:-qwen2.5:7b}"
   elif [[ "$ans" =~ ^[0-9]+$ ]] && (( ans >= 1 && ans <= ${#CATALOG_ROWS[@]} )); then
     CHOSEN_LLM="$(echo "${CATALOG_ROWS[$((ans - 1))]}" | cut -d'|' -f3)"
   else
@@ -1157,7 +1158,8 @@ else
 fi
 
 # --- RAM vs the configured LLM (only speak up if something's off) ------------
-LOFI_LLM_MODEL="${LOFI_LLM_MODEL:-qwen2.5:14b}"
+# must match tunables.DEFAULT_LLM_MODEL (shell can't import Python)
+LOFI_LLM_MODEL="${LOFI_LLM_MODEL:-qwen2.5:7b}"
 
 # Best qwen2.5 tag for this much unified memory, leaving headroom for Whisper
 # (~1.6 GB), Kokoro (~0.3 GB), and the OS.
