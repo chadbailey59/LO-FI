@@ -585,6 +585,25 @@ with no tool and answers ungrounded. To inspect the index directly,
 `uv run python ingest.py stats`, or open
 `models/rag-index/lofi.db` with any `sqlite3` client.
 
+### Reference documents
+
+`./data/` ships with two IRS publications so `semantic_search` has real tax
+prose to retrieve next to your transactions:
+
+- [Publication 17](https://www.irs.gov/pub/irs-pdf/p17.pdf) — Your Federal Income Tax (individuals)
+- [Publication 334](https://www.irs.gov/pub/irs-pdf/p334.pdf) — Tax Guide for Small Business
+
+Canonical sources for more:
+
+- IRS forms, instructions, and publications: <https://www.irs.gov/forms-instructions>
+- The Internal Revenue Code itself (26 U.S.C.): <https://uscode.house.gov/download/download.shtml>
+- Treasury regulations (26 CFR): <https://www.ecfr.gov/current/title-26>
+
+Plain-prose publications chunk well. Raw statute and regulation text does
+not — deeply nested numbering scatters each rule across chunks — so `./data/`
+carries pubs only. Drop in whatever reference documents fit your life
+(leases, manuals, insurance policies) and re-run `./lofi.sh index-rag`.
+
 ---
 
 ## One place for all models: consolidate
