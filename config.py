@@ -23,14 +23,36 @@ Two kinds of settings live here:
 2. **Runtime settings** (model names, voice, device indices, greeting, log
    level). Exposed as getter functions read at *call time*, so they pick up
    whatever ``load_dotenv()`` in ``main()`` applied before the builders run.
+
+The *defaults* for models, voices, STT/TTS engines, architecture and the
+greeting live in ``tunables.py`` alongside every prompt — one file to edit. The
+getters here read them as fallbacks, so ``LOFI_*`` env vars still override.
 """
 
 from __future__ import annotations
 
 import os
-import platform
 import sys
 from pathlib import Path
+
+# Model/voice/greeting defaults live in tunables.py — THE file users edit. The
+# from-import keeps `config.DEFAULT_*` / `config.IS_APPLE_SILICON` working for
+# services.py and the tests, and the getters below still let LOFI_* env vars win.
+from tunables import (
+    IS_APPLE_SILICON,
+    DEFAULT_STT_ENGINE,
+    DEFAULT_TTS_ENGINE,
+    DEFAULT_WHISPER_MODEL,
+    DEFAULT_FASTER_WHISPER_MODEL,
+    DEFAULT_MOONSHINE_MODEL,
+    DEFAULT_PIPER_VOICE,
+    DEFAULT_KOKORO_VOICE,
+    DEFAULT_LLM_MODEL,
+    DEFAULT_RAG_LLM_MODEL,
+    DEFAULT_EMBED_MODEL,
+    DEFAULT_ARCHITECTURE,
+    DEFAULT_GREETING,
+)
 
 REPO_ROOT = Path(__file__).resolve().parent
 DEFAULT_MODEL_DIR = "./models"
@@ -164,37 +186,14 @@ if _legacy:
 
 
 # --- Defaults for the runtime settings -------------------------------------
-# Whisper-MLX needs an Apple-Silicon GPU (MLX ships no other macOS builds);
-# everywhere else the CPU path (faster-whisper) is the working default.
-IS_APPLE_SILICON = platform.system() == "Darwin" and platform.machine() == "arm64"
-DEFAULT_STT_ENGINE = "whisper_mlx" if IS_APPLE_SILICON else "faster_whisper"
-DEFAULT_TTS_ENGINE = "kokoro"
-DEFAULT_WHISPER_MODEL = "LARGE_V3_TURBO"
-DEFAULT_FASTER_WHISPER_MODEL = "DISTIL_MEDIUM_EN"
-DEFAULT_MOONSHINE_MODEL = "SMALL_STREAMING"
-DEFAULT_PIPER_VOICE = "en_US-lessac-medium"
-# The default pair: obedient non-thinking front + thinking analyst backend on
-# the split (LLMWithBackend) architecture. qwen2.5:7b is the smallest front
-# that delegates follow-ups reliably (3/3; 3b/4b fronts drop them and
-# fabricate). qwen3:8b analyst calls its tools via the API 3/3 under the
-# worker's composed prompt; nemotron-3-nano:4b writes tool calls as JSON text
-# there (3/3, measured 2026-10-16) and silently answers nothing — unusable as
-# the split backend.
-DEFAULT_LLM_MODEL = "qwen2.5:7b"
-DEFAULT_RAG_LLM_MODEL = "qwen3:8b"
-DEFAULT_ARCHITECTURE = "split"
+# Models, voices, STT/TTS engines, architecture and the greeting come from the
+# tunables import above.
 DEFAULT_OLLAMA_BASE_URL = "http://localhost:11434/v1"
-DEFAULT_EMBED_MODEL = "nomic-embed-text"
 DEFAULT_RAG_DATA_DIR = "data"
 DEFAULT_RAG_TOP_K = 4
 DEFAULT_RAG_CHUNK_TOKENS = 500
 DEFAULT_RAG_CHUNK_OVERLAP = 50
 DEFAULT_STATE_DIR = ".lofi"
-DEFAULT_KOKORO_VOICE = "af_heart"
-DEFAULT_GREETING = (
-    "Hi. I'm your private, offline financial thinking partner. "
-    "What's on your mind today?"
-)
 DEFAULT_GREETING_DELAY_SECS = 1.0
 DEFAULT_MOQ_SUBSCRIBER_TIMEOUT = 15.0
 DEFAULT_MOQ_AUDIO_AHEAD_MS = 500
