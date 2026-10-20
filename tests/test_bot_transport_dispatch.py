@@ -1,10 +1,10 @@
-"""Tests for bot_moq's per-transport session wiring: MoQ keeps its
+"""Tests for bot_browser's per-transport session wiring: MoQ keeps its
 subscriber-gated greeting; SmallWebRTC greets on client-connected and ends the
 session on disconnect."""
 
 import asyncio
 
-import bot_moq
+import bot_browser
 
 
 class SmallWebRTCRunnerArguments:  # same class NAME the runner uses
@@ -20,16 +20,16 @@ class RunnerArguments:
 
 
 def test_transport_kind_from_runner_args():
-    assert bot_moq._transport_kind(SmallWebRTCRunnerArguments()) == "webrtc"
-    assert bot_moq._transport_kind(WebSocketRunnerArguments()) == "websocket"
-    assert bot_moq._transport_kind(RunnerArguments()) == "moq"
+    assert bot_browser._transport_kind(SmallWebRTCRunnerArguments()) == "webrtc"
+    assert bot_browser._transport_kind(WebSocketRunnerArguments()) == "websocket"
+    assert bot_browser._transport_kind(RunnerArguments()) == "moq"
 
 
 def test_moq_transport_omitted_when_moq_ffi_missing(monkeypatch):
     # Native Windows: moq-ffi has no wheel, so MOQParams import fails —
     # the bot must still start with websocket (+ webrtc when installed).
-    monkeypatch.setattr(bot_moq, "MOQParams", None)
-    params = bot_moq.build_transport_params()
+    monkeypatch.setattr(bot_browser, "MOQParams", None)
+    params = bot_browser.build_transport_params()
     assert "moq" not in params
     assert "websocket" in params
 
@@ -37,7 +37,7 @@ def test_moq_transport_omitted_when_moq_ffi_missing(monkeypatch):
 def test_websocket_transport_params_use_protobuf_serializer():
     from pipecat.serializers.protobuf import ProtobufFrameSerializer
 
-    params = bot_moq.build_transport_params()
+    params = bot_browser.build_transport_params()
     assert "websocket" in params
     ws = params["websocket"]()
     assert ws.audio_in_enabled is True
@@ -56,7 +56,7 @@ def test_websocket_serializer_skips_kinds_the_js_client_cannot_parse():
         TranscriptionFrame,
     )
 
-    serializer = bot_moq.build_transport_params()["websocket"]().serializer
+    serializer = bot_browser.build_transport_params()["websocket"]().serializer
 
     async def run(frame):
         return await serializer.serialize(frame)
@@ -95,10 +95,10 @@ class FakeWorker:
 
 
 def test_webrtc_handlers_greet_and_end_session(monkeypatch):
-    monkeypatch.setattr(bot_moq, "GREETING_SETTLE_SECS", 0)
+    monkeypatch.setattr(bot_browser, "GREETING_SETTLE_SECS", 0)
     transport = FakeTransport()
     worker = FakeWorker()
-    bot_moq._register_webrtc_handlers(transport, worker)
+    bot_browser._register_webrtc_handlers(transport, worker)
 
     assert set(transport.handlers) >= {"on_client_connected", "on_client_disconnected"}
     asyncio.run(transport.handlers["on_client_connected"](transport, object()))

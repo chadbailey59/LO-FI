@@ -12,7 +12,7 @@ from pathlib import Path
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from bot_moq import CLIENT_DIST, _serve_client_dist, transport_params
+from bot_browser import CLIENT_DIST, _serve_client_dist, transport_params
 
 BROWSER_AUDIO_RING_MS = 1000
 

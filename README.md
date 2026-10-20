@@ -266,7 +266,7 @@ uv sync
 uv run python scripts/prefetch_models.py
 
 # run — the bash launcher (lofi.sh) doesn't run natively; start the bot directly
-uv run python bot_moq.py --host localhost --port 7860
+uv run python bot_browser.py --host localhost --port 7860
 ```
 
 Then open **`http://localhost:7860`** in any browser,
@@ -730,7 +730,7 @@ measured, byte-sensitive text — read them before editing.
 | `LOFI_MOQ_SUBSCRIBER_TIMEOUT` | `15.0` | Max seconds the MoQ bot holds its greeting for the browser's audio subscription (MoQ has no replay — speaking earlier drops the audio). On timeout it greets anyway. |
 | `LOFI_MOQ_AUDIO_AHEAD_MS` | `500` | Max milliseconds of bot audio written ahead of real time over MoQ. TTS runs faster than real time; uncapped bursts overflow the browser's playback ring buffer and clip the start of every bot turn. Raise only if playback stutters mid-utterance. |
 | `LOFI_LOG_LEVEL` | `DEBUG` | Loguru level for stderr. `DEBUG` surfaces each service's activity — handy for the offline check. |
-| `LOFI_WEB_PORT` | `7860` | Port `bot_moq.py` serves on (used by `./lofi.sh start`). |
+| `LOFI_WEB_PORT` | `7860` | Port `bot_browser.py` serves on (used by `./lofi.sh start`). |
 | `LOFI_OPEN_BROWSER` | `1` | `0` stops `./lofi.sh start` auto-opening the page. Auto-open is always skipped on WSL (the right browser is on the Windows side). |
 | `LOFI_STATE_DIR` | `.lofi` | Where `./lofi.sh` records the PIDs of the processes it started — the only PIDs `./lofi.sh stop` will ever touch. Relative paths resolve against the repo root. |
 | `LOFI_VAD_CONFIDENCE` | `0.7` | Silero speech-probability threshold (0–1) before audio counts as speech. |
@@ -762,7 +762,7 @@ never touches a bot file you may have customized.
 ```
 lofi/
 ├── bot.py                    # CLI / headphones — LocalAudioTransport
-├── bot_moq.py                # browser bot — websocket/moq/webrtc, serves client/dist
+├── bot_browser.py                # browser bot — websocket/moq/webrtc, serves client/dist
 ├── pipeline.py               # the one build_pipeline() every bot shares
 ├── services.py               # STT/LLM/TTS builders, engine-dispatched
 ├── config.py                 # env-driven settings, zero-config defaults

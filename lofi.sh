@@ -137,7 +137,7 @@ cmd_start() {
       # No -t pin: the runner then serves every installed browser transport
       # (MoQ always; SmallWebRTC with --extra webrtc) and the client picks per
       # session via /start — the WebRTC fallback path needs this.
-      nohup uv run python bot_moq.py --host localhost --port "$LOFI_WEB_PORT" >"$bot_log" 2>&1 &
+      nohup uv run python bot_browser.py --host localhost --port "$LOFI_WEB_PORT" >"$bot_log" 2>&1 &
       ;;
     headphones)
       echo "start: launching the local-audio bot — use headphones 🎧"

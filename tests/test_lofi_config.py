@@ -2,7 +2,7 @@ import json
 import sys
 
 import config
-from bot_moq import CONFIG_MESSAGE_TYPE, _lofi_config_message, build_transport_params
+from bot_browser import CONFIG_MESSAGE_TYPE, _lofi_config_message, build_transport_params
 
 
 def test_transport_params_offer_moq_and_webrtc():

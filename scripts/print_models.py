@@ -379,7 +379,7 @@ def _llm_entry() -> dict:
 
 
 def model_entries() -> list[dict]:
-    """Importable form of the model lines (bot_moq sends them as `lofi-config`)."""
+    """Importable form of the model lines (bot_browser sends them as `lofi-config`)."""
     ollama = f"(Ollama @ {config.ollama_base_url()})"
     entries = [
         {"role": "STT", "model": _stt_line(), "path": _path_line(_stt_file())},

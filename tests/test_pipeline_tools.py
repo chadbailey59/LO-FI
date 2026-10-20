@@ -160,7 +160,7 @@ def test_filler_handler_pushes_busy_message_and_filler(db, monkeypatch, stub_ser
 def test_bot_entry_points_import_cleanly():
     import importlib
 
-    for module in ("bot", "bot_moq"):
+    for module in ("bot", "bot_browser"):
         importlib.import_module(module)
 
 

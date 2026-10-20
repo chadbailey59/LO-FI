@@ -2,7 +2,7 @@
 
 The three service builders live here, OUTSIDE the bot files, so that switching
 engines (via ``.env`` / ``./configure.sh -i``) never touches ``bot.py`` /
-``bot_moq.py`` / ``bot_web.py`` — customize your pipeline freely in bot*.py.
+``bot_browser.py`` — customize your pipeline freely in bot*.py.
 
 Each builder reads its engine choice from config (``LOFI_STT_ENGINE`` /
 ``LOFI_TTS_ENGINE``) and constructs the matching Pipecat service:

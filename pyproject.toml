@@ -41,7 +41,7 @@ webrtc = ["pipecat-ai[webrtc]"]
 # bot.py (LocalAudioTransport) only. PyAudio ships wheels for Windows *only*, so
 # on macOS/Linux it compiles against PortAudio — the one dependency here that
 # needs a C toolchain. Keeping it out of the base install means a bare
-# `uv sync` works on any machine, and the browser front-end (bot_moq.py)
+# `uv sync` works on any machine, and the browser front-end (bot_browser.py)
 # runs without it; it gets echo cancellation from the browser anyway.
 # See README "Requirements".
 #   brew install portaudio && uv sync --extra local-audio

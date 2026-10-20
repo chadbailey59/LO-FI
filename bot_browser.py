@@ -1,17 +1,17 @@
-"""Browser voice bot over MoQ (Media over QUIC) — lower latency than WebRTC, same brain.
+"""Browser voice bot — same brain, echo cancellation free from the browser's getUserMedia.
 
-Like bot_web.py this serves the bot to a browser (so echo cancellation is free from the
-browser's getUserMedia), but over MoQ/QUIC instead of WebRTC — lower latency, and it pairs
-with the terminal-styled voice-ui-kit console we want for the frontend. The bot runs its own
-MoQ relay in serve mode; the runner auto-generates a localhost TLS cert, so it stays fully
-offline (loopback QUIC — no internet).
+Serves the lofi client (client/dist/) and offers three transports: WebSocket (the
+client's default — pure TCP, crosses any boundary), SmallWebRTC (opt-in via
+?transport=webrtc, needs `uv sync --extra webrtc`), and MoQ/QUIC (opt-in via
+?transport=moq; the bot runs its own MoQ relay in serve mode with an
+auto-generated localhost TLS cert — loopback QUIC, fully offline).
 
 Run:
     ./lofi.sh start
     # opens http://localhost:7860 (the lofi client from client/dist/) — allow the mic, Connect.
 
 Reuses the shared pipeline from pipeline.py (VADProcessor + Whisper/Ollama/Kokoro);
-the ONLY difference from bot_web.py is the transport (MOQParams) and MoQ's event-handler shapes.
+only transport construction and per-transport event-handler shapes live here.
 """
 
 # config FIRST — sets HF_HOME / Kokoro cache paths before any pipecat/HF import (see config.py).

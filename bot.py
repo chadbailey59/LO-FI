@@ -53,9 +53,9 @@ def build_transport() -> "LocalAudioTransport":
 
     PyAudio is imported here rather than at module scope on purpose. It is an
     opt-in extra (`local-audio`) because it has no macOS/Linux wheels and must
-    compile against PortAudio — and bot_web.py / bot_moq.py import this module
-    for its builders while getting audio from the browser instead. A top-level
-    import would break those front-ends on machines without PortAudio, and would
+    compile against PortAudio — and bot_browser.py imports this module for its
+    builders while getting audio from the browser instead. A top-level
+    import would break that front-end on machines without PortAudio, and would
     also give this module the import-time side effect its docstring disclaims.
     """
     try:
