@@ -18,7 +18,10 @@ HISTORY = [
 
 
 class FakeV1Client:
-    """Scripted /v1/chat/completions replies; sticky last entry; exceptions raise."""
+    """Scripted /v1/chat/completions replies; sticky last entry; exceptions raise.
+
+    A step is a content string, a full message dict (e.g. with tool_calls), or
+    an exception."""
 
     def __init__(self, script):
         self._script = list(script)
@@ -29,13 +32,14 @@ class FakeV1Client:
         step = self._script.pop(0) if len(self._script) > 1 else self._script[0]
         if isinstance(step, BaseException):
             raise step
+        message = step if isinstance(step, dict) else {"content": step}
 
         class R:
             def raise_for_status(self):
                 return None
 
             def json(self):
-                return {"choices": [{"message": {"content": step}}]}
+                return {"choices": [{"message": message}]}
 
         return R()
 
@@ -110,3 +114,69 @@ def test_single_turn_stages_skip_multiturn_queries():
     }
     toolcall = asyncio.run(run_evals.run_toolcall_stage([query], "sys", client=None))
     assert toolcall["rows"] == []
+
+
+# ---- followup stage (delegation after a completed delegation round) ------------
+
+TOOL_CALL_MSG = {
+    "tool_calls": [
+        {"id": "call_x", "type": "function",
+         "function": {"name": "ask_financial_records", "arguments": "{}"}}
+    ]
+}
+
+WAITING_LINE = "Let me check that for you right now. One moment please."
+
+
+def run_followup(queries, script):
+    client = FakeV1Client(script)
+    return asyncio.run(run_evals.run_followup_stage(queries, client)), client
+
+
+def test_followup_stage_recall_and_waiting_line_misses():
+    report, client = run_followup([DATA_Q], [TOOL_CALL_MSG])
+    assert report["followup_delegation_recall"] == 1.0
+    assert report["deep_delegation_recall"] == 1.0
+    assert report["live_miss_delegation_rate"] == 1.0
+    assert report["waiting_line_misses"] == 0
+    single, deep = client.requests[0], client.requests[1]
+    assert single["temperature"] == 0
+    assert single["messages"][0]["role"] == "system"
+    assert single["messages"][1:-1] == run_evals.FOLLOWUP_HISTORY
+    assert single["messages"][-1] == {"role": "user", "content": DATA_Q["query"]}
+    assert deep["messages"][1:-1] == run_evals.FOLLOWUP_HISTORY_DEEP
+    # one single + one deep per data query, then the three live-miss probes
+    assert len(client.requests) == 2 + len(run_evals.LIVE_MISS_TURNS)
+
+    report, _ = run_followup([DATA_Q], [WAITING_LINE])
+    assert report["followup_delegation_recall"] == 0.0
+    assert report["deep_delegation_recall"] == 0.0
+    assert report["live_miss_delegation_rate"] == 0.0
+    assert report["waiting_line_misses"] == 2
+
+
+def test_followup_stage_chitchat_must_not_delegate():
+    report, _ = run_followup([CHIT_Q], ["Doing great, thanks!"])
+    assert report["followup_delegation_precision"] == 1.0
+
+    report, _ = run_followup([CHIT_Q], [TOOL_CALL_MSG])
+    assert report["followup_delegation_precision"] == 0.0
+
+
+def test_followup_stage_skips_multiturn_and_fragmented():
+    mt = {"id": "mt-1", "type": "multiturn", "query": "what was that?",
+          "history": HISTORY, "expected_answer": "x"}
+    frag = {"id": "frag-1", "type": "fragmented", "messages": ["how much", "at Paulie's?"]}
+    report, _ = run_followup([DATA_Q, mt, frag], [TOOL_CALL_MSG])
+    assert [r["id"] for r in report["rows"]] == ["lookup-1", "lookup-1"]  # single + deep
+
+
+def test_followup_stage_error_rows_do_not_pass_the_rates():
+    import httpx
+
+    report, _ = run_followup([DATA_Q], [httpx.ConnectError("refused")])
+    # single + deep + the three live-miss probes all error on the sticky exception
+    assert report["errors"] == 5
+    assert report["followup_delegation_recall"] is None
+    assert report["deep_delegation_recall"] is None
+    assert report["live_miss_delegation_rate"] is None

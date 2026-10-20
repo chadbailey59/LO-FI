@@ -694,6 +694,189 @@ async def run_split_stage(queries: list[dict], db_path, embedder, client: httpx.
     }
 
 
+# ---- stage: followup (delegation after a completed delegation round) -----------
+
+# Production context shape after one completed delegation, captured from the
+# 2026-10-20 smoke-test session (.lofi/logs/bot-20261020-165925.log): delegate
+# tool call → tool ack → spoken waiting narration → developer Backend notes →
+# spoken relay. The live front stopped delegating in exactly this shape
+# (ralph/HUMAN.md §2 note): its own waiting lines read as complete answers to
+# records questions, and at temperature 0 it imitates them without the call.
+FOLLOWUP_HISTORY = [
+    {"role": "assistant", "content": tunables.DEFAULT_GREETING},
+    {
+        "role": "user",
+        "content": "Can you tell me how many Whole Foods transactions I had in August of 2026?",
+    },
+    {
+        "role": "assistant",
+        "tool_calls": [
+            {
+                "id": "call_0001",
+                "type": "function",
+                "function": {"name": tunables.DELEGATE_TOOL_NAME, "arguments": "{}"},
+            }
+        ],
+    },
+    {
+        "role": "tool",
+        "content": '{"status": "delegated", "backend": "idle"}',
+        "tool_call_id": "call_0001",
+    },
+    {"role": "assistant", "content": "Let me check that for you. One moment please."},
+    {
+        "role": "developer",
+        "content": "Backend (working): aggregate(filters=[{'column': 'merchant', "
+        "'operator': 'eq', 'value': 'Whole Foods'}, {'column': 'date', 'operator': "
+        "'between', 'value': '2026-08-01', 'value2': '2026-08-31'}], operation='count')",
+    },
+    {"role": "developer", "content": "Backend: You had 3 transactions at Whole Foods in August 2026."},
+    {
+        "role": "assistant",
+        "content": "In August 2026, you had 3 transactions at Whole Foods. "
+        "Is there anything else you'd like to know about your spending?",
+    },
+]
+
+# Second completed round + chitchat exchange, continuing the same session. One
+# round barely moves delegation (measured 0.957); after this depth the live
+# session missed deterministically (0.826 on the eval set, 0/3 on the turns
+# below, temperature 0, qwen2.5:7b, 2026-10-20).
+FOLLOWUP_HISTORY_DEEP = FOLLOWUP_HISTORY + [
+    {"role": "user", "content": "Um,   Yeah.   What's the total of the transactions?"},
+    {
+        "role": "assistant",
+        "tool_calls": [
+            {
+                "id": "call_0002",
+                "type": "function",
+                "function": {"name": tunables.DELEGATE_TOOL_NAME, "arguments": "{}"},
+            }
+        ],
+    },
+    {
+        "role": "tool",
+        "content": '{"status": "delegated", "backend": "idle"}',
+        "tool_call_id": "call_0002",
+    },
+    {"role": "assistant", "content": "Let me calculate that for you. One moment please."},
+    {
+        "role": "developer",
+        "content": "Backend (working): aggregate(filters=[{'column': 'merchant', "
+        "'operator': 'eq', 'value': 'Whole Foods'}, {'column': 'date', 'operator': "
+        "'between', 'value': '2026-08-01', 'value2': '2026-08-31'}], operation='sum', "
+        "include_transfers=False)",
+    },
+    {
+        "role": "developer",
+        "content": "Backend: The total of your Whole Foods transactions in August 2026 was $301.81.",
+    },
+    {
+        "role": "assistant",
+        "content": "The total of your Whole Foods transactions in August 2026 was three "
+        "hundred and one dollars and eighty-one cents. Is there anything else you'd "
+        "like to know about your spending?",
+    },
+    {"role": "user", "content": "Yeah."},
+    {"role": "user", "content": "Hmm."},
+    {"role": "assistant", "content": "Of course! What would you like to know next?"},
+]
+
+# The three turns the live front failed to delegate on (verbatim transcripts).
+LIVE_MISS_TURNS = [
+    "Tell me.   What?   Did I spend, what's the thing that I...   spent the most "
+    "on in August of 2026.   Like what item?   or laminatum.",
+    "I want all specific types of transactions, so do like a strict...   stream match.",
+    "Are you still there?  You're not looking.",
+]
+
+
+async def _followup_delegation(
+    question: str, client: httpx.AsyncClient, history: list[dict] = FOLLOWUP_HISTORY
+) -> dict:
+    body = {
+        "model": config.llm_model(),
+        "messages": [
+            {
+                "role": "system",
+                "content": tunables.SPLIT_FRONT_PROMPT
+                + "\n\n"
+                + tunables.COMPACT_PAIRING_INSTRUCTION,
+            },
+            *history,
+            {"role": "user", "content": question},
+        ],
+        "tools": [DELEGATE_SCHEMA],
+        # Production front runs at 0 (pipeline.build_pipeline).
+        "temperature": 0,
+        "reasoning_effort": "none",
+        "stream": False,
+    }
+    started = time.perf_counter()
+    response = await client.post(_v1_url(), json=body)
+    response.raise_for_status()
+    message = response.json()["choices"][0]["message"]
+    return {
+        "delegated": bool(message.get("tool_calls")),
+        "answer": message.get("content") or "",
+        "ms": round((time.perf_counter() - started) * 1000, 1),
+    }
+
+
+async def run_followup_stage(queries: list[dict], client: httpx.AsyncClient) -> dict:
+    """Front delegation on turns AFTER completed delegation rounds: data
+    questions must still call the tool; chitchat must still answer without it.
+    Each data query is probed at both history depths; the live-miss turns run
+    on the deep history they failed on."""
+
+    async def probe(question, history, row):
+        try:
+            result = await _followup_delegation(question, client, history)
+            result["error"] = None
+        except (httpx.TimeoutException, httpx.HTTPError) as exc:
+            result = {"delegated": None, "answer": "", "ms": None, "error": repr(exc)}
+        return {**row, **result}
+
+    rows = []
+    live_rows = []
+    for q in queries:
+        if q["type"] in ("multiturn", "fragmented"):
+            continue
+        rows.append(await probe(q["query"], FOLLOWUP_HISTORY, {"id": q["id"], "type": q["type"], "depth": "single"}))
+        if q["type"] != "chitchat":
+            rows.append(await probe(q["query"], FOLLOWUP_HISTORY_DEEP, {"id": q["id"], "type": q["type"], "depth": "deep"}))
+    for i, turn in enumerate(LIVE_MISS_TURNS):
+        live_rows.append(await probe(turn, FOLLOWUP_HISTORY_DEEP, {"id": f"live-miss-{i + 1}", "depth": "deep"}))
+
+    scored = [r for r in rows if not r["error"]]
+    data = [r for r in scored if r["type"] != "chitchat" and r["depth"] == "single"]
+    deep = [r for r in scored if r["type"] != "chitchat" and r["depth"] == "deep"]
+    chit = [r for r in scored if r["type"] == "chitchat"]
+    live = [r for r in live_rows if not r["error"]]
+    mss = [r["ms"] for r in scored if r["ms"]]
+    return {
+        "rows": rows,
+        "live_rows": live_rows,
+        "errors": sum(bool(r["error"]) for r in rows + live_rows),
+        "followup_delegation_recall": (
+            sum(bool(r["delegated"]) for r in data) / len(data) if data else None
+        ),
+        "deep_delegation_recall": (
+            sum(bool(r["delegated"]) for r in deep) / len(deep) if deep else None
+        ),
+        "live_miss_delegation_rate": (
+            sum(bool(r["delegated"]) for r in live) / len(live) if live else None
+        ),
+        "followup_delegation_precision": (
+            sum(r["delegated"] is False for r in chit) / len(chit) if chit else None
+        ),
+        "waiting_line_misses": sum(
+            1 for r in data + deep if not r["delegated"] and is_deferral(r["answer"])
+        ),
+        "front_ms_avg": round(sum(mss) / len(mss), 1) if mss else None,
+    }
+
+
 # ---- stage: front (split front model: defer, never invent) --------------------
 
 DEFER_PHRASES = (
@@ -776,7 +959,20 @@ def _print_table(title: str, rows: list[tuple]) -> None:
         print(" | ".join(str(c) for c in row))
 
 
-def print_report(retrieval_report=None, toolcall_report=None, e2e_report=None, isolate_report=None, split_report=None, front_report=None) -> None:
+def print_report(retrieval_report=None, toolcall_report=None, e2e_report=None, isolate_report=None, split_report=None, front_report=None, followup_report=None) -> None:
+    if followup_report is not None:
+        _print_table(
+            "Follow-up delegation (turns after completed delegation rounds)",
+            [
+                ("followup_delegation_recall", followup_report["followup_delegation_recall"]),
+                ("deep_delegation_recall", followup_report["deep_delegation_recall"]),
+                ("live_miss_delegation_rate", followup_report["live_miss_delegation_rate"]),
+                ("followup_delegation_precision", followup_report["followup_delegation_precision"]),
+                ("waiting_line_misses", followup_report["waiting_line_misses"]),
+                ("errors", followup_report["errors"]),
+                ("front_ms_avg", followup_report["front_ms_avg"]),
+            ],
+        )
     if front_report is not None:
         _print_table(
             "Split front alone (no tools: defer, never invent)",
@@ -886,7 +1082,7 @@ async def _amain(args) -> None:
         PINNED_TODAY, store.date_range(db_path), store.categories(db_path)
     )
 
-    retrieval_report = toolcall_report = e2e_report = isolate_report = split_report = front_report = None
+    retrieval_report = toolcall_report = e2e_report = isolate_report = split_report = front_report = followup_report = None
     run_all = args.stage == "all"
 
     if run_all or args.stage == "retrieval":
@@ -910,8 +1106,10 @@ async def _amain(args) -> None:
             front_report = await run_front_stage(
                 queries, tunables.SPLIT_FRONT_PROMPT, client
             )
+        if args.stage == "followup":
+            followup_report = await run_followup_stage(queries, client)
 
-    print_report(retrieval_report, toolcall_report, e2e_report, isolate_report, split_report, front_report)
+    print_report(retrieval_report, toolcall_report, e2e_report, isolate_report, split_report, front_report, followup_report)
 
     if args.json:
         reports = {
@@ -923,6 +1121,7 @@ async def _amain(args) -> None:
                 ("isolate", isolate_report),
                 ("split", split_report),
                 ("front", front_report),
+                ("followup", followup_report),
             ]
             if report is not None
         }
@@ -937,7 +1136,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
         "--stage",
-        choices=["retrieval", "toolcall", "e2e", "isolate", "split", "front", "all"],
+        choices=["retrieval", "toolcall", "e2e", "isolate", "split", "front", "followup", "all"],
         default="all",
     )
     parser.add_argument(
