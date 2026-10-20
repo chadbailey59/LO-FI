@@ -404,3 +404,28 @@ def test_watchdog_reminder_skips_context():
     asyncio.run(run())
     reminders = [f for f in pushed if isinstance(f, TTSSpeakFrame)]
     assert reminders and all(f.append_to_context is False for f in reminders)
+
+
+def _watchdog_of(built):
+    from silence_watchdog import SilenceWatchdog
+
+    return next(p for p in built.pipeline._processors if isinstance(p, SilenceWatchdog))
+
+
+def test_wait_lesson_not_wired_on_cascade(db, monkeypatch, stub_services):
+    monkeypatch.setenv("LOFI_RAG_DB", str(db))
+    monkeypatch.setenv("LOFI_WAIT_LESSON_LANGUAGE", "Spanish")
+    assert _watchdog_of(pipeline.build_pipeline(fake_transport()))._lesson is None
+
+
+def test_wait_lesson_wired_on_split_with_language(db, monkeypatch):
+    for name in ("build_stt", "build_tts", "build_vad_processor"):
+        monkeypatch.setattr(pipeline, name, lambda: FrameProcessor())
+    monkeypatch.setenv("LOFI_ARCHITECTURE", "split")
+    monkeypatch.setenv("LOFI_RAG_DB", str(db))
+
+    monkeypatch.delenv("LOFI_WAIT_LESSON_LANGUAGE", raising=False)
+    assert _watchdog_of(pipeline.build_pipeline(fake_transport()))._lesson is None
+
+    monkeypatch.setenv("LOFI_WAIT_LESSON_LANGUAGE", "Spanish")
+    assert _watchdog_of(pipeline.build_pipeline(fake_transport()))._lesson is not None

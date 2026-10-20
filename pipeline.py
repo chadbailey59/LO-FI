@@ -236,6 +236,18 @@ def build_records_backend(db_path):
     )
 
 
+# Wait-window mini-lesson (LOFI_WAIT_LESSON_LANGUAGE, split only): while the
+# analyst works, the watchdog's first reminder has the front teach one phrase
+# tied to the user's question. Short and bounded — the analyst's answer queues
+# right behind whatever the lesson generates.
+WAIT_LESSON_NUDGE = (
+    "The records lookup is still running; its result arrives soon. While the "
+    "user waits, teach them one short beginner {language} phrase related to "
+    "what they just asked: the phrase, how it sounds, and what it means — one "
+    "sentence each, then stop. Do not mention the lookup or this note."
+)
+
+
 class BackendToolPanel(FrameProcessor):
     """Mirrors the backend worker's tool calls into the UI's lofi-rag panel.
 
@@ -333,12 +345,30 @@ def build_pipeline(transport: BaseTransport) -> BuiltBot:
         build_stt(),
         user_aggregator,
     ]
+    lesson_language = config.wait_lesson_language()
+    lesson = None
+    if splitting and lesson_language:
+        from pipecat.frames.frames import LLMMessagesAppendFrame
+
+        async def lesson():
+            await llm.queue_frame(
+                LLMMessagesAppendFrame(
+                    messages=[
+                        {
+                            "role": "developer",
+                            "content": WAIT_LESSON_NUDGE.format(language=lesson_language),
+                        }
+                    ],
+                    run_llm=True,
+                )
+            )
+
     pipeline = Pipeline(
         [
             *processors,
             llm,
             *([BackendToolPanel()] if splitting else []),
-            SilenceWatchdog(),
+            SilenceWatchdog(lesson=lesson),
             tts,
             transport.output(),
             assistant_aggregator,

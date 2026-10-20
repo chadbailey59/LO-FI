@@ -423,6 +423,16 @@ def rag_fast_llm_model() -> str:
     return _get("LOFI_RAG_FAST_LLM_MODEL", "").strip() or rag_llm_model()
 
 
+def wait_lesson_language() -> str:
+    """Language for the wait-window mini-lesson (LOFI_WAIT_LESSON_LANGUAGE,
+    default empty = off; split only).
+
+    Set to a language name — e.g. Spanish, German — and while the analyst
+    works the front teaches one short phrase related to the user's question.
+    """
+    return _get("LOFI_WAIT_LESSON_LANGUAGE", "").strip()
+
+
 def architecture() -> str:
     """Bot architecture (LOFI_ARCHITECTURE, default ``split``).
 
