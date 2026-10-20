@@ -26,6 +26,13 @@ h1 {
   display: flex;
   align-items: center;
   gap: 0.75rem;
+  flex: 1;
+}
+
+#transport-name {
+  margin-left: auto;
+  font-size: 0.9rem;
+  opacity: 0.75;
 }
 
 button {

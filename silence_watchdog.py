@@ -94,14 +94,17 @@ class SilenceWatchdog(FrameProcessor):
         self._task = None
 
     async def _remind(self) -> None:
-        lesson_turn = self._lesson is not None and self._busy
-        for i in range(self._max_reminders):
-            await asyncio.sleep(
-                LESSON_FIRST_INTERVAL_SECS if lesson_turn and i == 0 else self._interval_secs
-            )
-            if lesson_turn and i == 0 and self._busy:
+        # Lesson rides an early slot; canned reminders keep the interval grid
+        # (lesson at 12s, reminders at 60s, 120s, ... from arming).
+        elapsed = 0.0
+        if self._lesson is not None and self._busy:
+            await asyncio.sleep(LESSON_FIRST_INTERVAL_SECS)
+            elapsed = LESSON_FIRST_INTERVAL_SECS
+            if self._busy:
                 await self._lesson()
-                continue
+        for _ in range(self._max_reminders):
+            await asyncio.sleep(max(self._interval_secs - elapsed, 0.0))
+            elapsed = 0.0
             # Spoken only — reminder lines in the LLM context teach a small
             # front model to answer with waiting lines (and then invent a
             # result) instead of delegating; measured on the 2026-10-19 logs.

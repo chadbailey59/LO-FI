@@ -185,8 +185,8 @@ def test_lesson_replaces_first_reminder_while_busy(monkeypatch):
 
     down = asyncio.run(run())
     assert lessons == [1]
-    # Later reminders in the same wait stay canned.
-    assert len(reminders(down, watchdog._phrase)) == 1
+    # The lesson rides an early slot; all max_reminders stay canned.
+    assert len(reminders(down, watchdog._phrase)) == 2
 
 
 def test_lesson_skipped_when_not_busy(monkeypatch):
