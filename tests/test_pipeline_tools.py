@@ -6,6 +6,7 @@ The STT/LLM/TTS builders and the VAD stage are stubbed — this asserts the shap
 of the context, not that models load.
 """
 
+import asyncio
 import shutil
 from pathlib import Path
 from types import SimpleNamespace
@@ -16,6 +17,7 @@ from pipecat.processors.frame_processor import FrameProcessor
 
 import ingest
 import pipeline
+import services
 import tools
 
 FIXTURES = Path(__file__).parent / "fixtures"
@@ -442,3 +444,129 @@ def test_wait_lesson_wired_on_split_with_language(db, monkeypatch):
 
     monkeypatch.setenv("LOFI_WAIT_LESSON_LANGUAGE", "Spanish")
     assert _watchdog_of(pipeline.build_pipeline(fake_transport()))._lesson is not None
+
+
+def test_backend_tool_panel_announces_pending_call(db):
+    """Started/in-progress phases reach the UI so a slow lookup shows activity."""
+    import asyncio
+
+    from pipecat.frames.frames import (
+        ExternalFunctionCall,
+        ExternalFunctionCallCancelFrame,
+        ExternalFunctionCallInProgressFrame,
+        ExternalFunctionCallResultFrame,
+        ExternalFunctionCallsStartedFrame,
+    )
+    from pipecat.processors.frame_processor import FrameDirection
+    from pipecat.processors.frameworks.rtvi.frames import RTVIServerMessageFrame
+
+    panel = pipeline.BackendToolPanel()
+    pushed = []
+
+    async def record(frame, *args, **kwargs):
+        pushed.append(frame)
+
+    panel.push_frame = record
+
+    def messages(message_type):
+        return [
+            f.data
+            for f in pushed
+            if isinstance(f, RTVIServerMessageFrame) and f.data.get("type") == message_type
+        ]
+
+    async def run():
+        await panel.process_frame(
+            ExternalFunctionCallsStartedFrame(
+                function_calls=[ExternalFunctionCall("semantic_search", "call-1")]
+            ),
+            FrameDirection.DOWNSTREAM,
+        )
+        await panel.process_frame(
+            ExternalFunctionCallInProgressFrame(
+                function_name="semantic_search",
+                tool_call_id="call-1",
+                arguments={"query": "secret passphrase"},
+            ),
+            FrameDirection.DOWNSTREAM,
+        )
+
+    asyncio.run(run())
+    pending = messages(tools.RAG_PENDING_MESSAGE_TYPE)
+    assert len(pending) == 2
+    assert pending[0] == {
+        "type": tools.RAG_PENDING_MESSAGE_TYPE,
+        "tool": "semantic_search",
+        "args": {},
+        "active": True,
+    }
+    assert pending[1]["args"] == {"query": "secret passphrase"}
+    assert pending[1]["active"] is True
+    # No route line until the result lands.
+    assert messages(tools.RAG_MESSAGE_TYPE) == []
+
+    async def finish():
+        await panel.process_frame(
+            ExternalFunctionCallResultFrame(
+                function_name="semantic_search",
+                tool_call_id="call-1",
+                arguments={"query": "secret passphrase"},
+                result={"results": []},
+            ),
+            FrameDirection.DOWNSTREAM,
+        )
+
+    asyncio.run(finish())
+    assert len(messages(tools.RAG_MESSAGE_TYPE)) == 1
+    # Result ends the call; no extra pending message needed to clear it.
+    assert len(messages(tools.RAG_PENDING_MESSAGE_TYPE)) == 2
+
+    async def cancel():
+        await panel.process_frame(
+            ExternalFunctionCallsStartedFrame(
+                function_calls=[ExternalFunctionCall("sql_query", "call-2")]
+            ),
+            FrameDirection.DOWNSTREAM,
+        )
+        await panel.process_frame(
+            ExternalFunctionCallCancelFrame(function_name="sql_query", tool_call_id="call-2"),
+            FrameDirection.DOWNSTREAM,
+        )
+
+    asyncio.run(cancel())
+    pending = messages(tools.RAG_PENDING_MESSAGE_TYPE)
+    assert pending[-2]["tool"] == "sql_query" and pending[-2]["active"] is True
+    assert pending[-1] == {
+        "type": tools.RAG_PENDING_MESSAGE_TYPE,
+        "tool": "sql_query",
+        "args": {},
+        "active": False,
+    }
+
+
+def test_split_pipeline_warms_the_analyst(db, monkeypatch):
+    for name in ("build_stt", "build_tts", "build_vad_processor"):
+        monkeypatch.setattr(pipeline, name, lambda: FrameProcessor())
+    monkeypatch.setenv("LOFI_ARCHITECTURE", "split")
+    monkeypatch.setenv("LOFI_RAG_DB", str(db))
+    calls: list[int] = []
+    monkeypatch.setattr(services, "warm_analyst", lambda: calls.append(1))
+
+    async def build():
+        pipeline.build_pipeline(fake_transport())
+
+    asyncio.run(build())
+    assert calls == [1]
+
+
+def test_cascade_pipeline_does_not_warm_the_analyst(db, monkeypatch, stub_services):
+    monkeypatch.setenv("LOFI_ARCHITECTURE", "cascade")
+    monkeypatch.setenv("LOFI_RAG_DB", str(db))
+    calls: list[int] = []
+    monkeypatch.setattr(services, "warm_analyst", lambda: calls.append(1))
+
+    async def build():
+        pipeline.build_pipeline(fake_transport())
+
+    asyncio.run(build())
+    assert calls == []

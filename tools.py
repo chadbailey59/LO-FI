@@ -28,6 +28,9 @@ from tunables import (
 )
 
 RAG_MESSAGE_TYPE = "lofi-rag"
+# Separate type: lofi-rag freezes the stopwatch, stops money rain and clears
+# the watchdog's busy flag, all of which belong to a FINISHED lookup.
+RAG_PENDING_MESSAGE_TYPE = "lofi-rag-pending"
 BUSY_MESSAGE_TYPE = "lofi-busy"
 IDLE_MESSAGE_TYPE = "lofi-idle"
 

@@ -19,6 +19,7 @@ beyond importing config (which pins the repo-local model-cache env vars).
 
 import config
 
+import asyncio
 import os
 import sys
 from pathlib import Path
@@ -184,6 +185,51 @@ def build_backend_llm():
         settings=OLLamaLLMService.Settings(model=config.rag_llm_model()),
         base_url=config.ollama_base_url(),
     )
+
+
+# Analyst cold load measured 2026-10-20 (qwen3:8b): 11.5 s TTFB on the first
+# delegation, on top of 45 s thinking — the user hears a long silence.
+WARMUP_TIMEOUT_SECS = 120.0
+
+_warmups: set[asyncio.Task] = set()
+
+
+async def warm_analyst_model(client=None) -> None:
+    """Load the analyst's weights into Ollama. Empty prompt = load, no tokens.
+
+    Errors are swallowed: a warmup that fails costs the cold load back, and
+    bot._preflight_llm already reports an unreachable Ollama or missing model.
+    """
+    import httpx
+
+    http = client or httpx.AsyncClient(timeout=WARMUP_TIMEOUT_SECS)
+    model = config.rag_llm_model()
+    try:
+        await http.post(
+            f"{config.ollama_api_url()}/api/generate",
+            json={"model": model, "prompt": "", "stream": False},
+        )
+        logger.info(f"Analyst warmup done: {model} loaded")
+    except Exception as exc:  # noqa: BLE001 (warmup is best-effort)
+        logger.debug(f"Analyst warmup skipped ({model}): {exc}")
+    finally:
+        if client is None:
+            await http.aclose()
+
+
+def warm_analyst() -> None:
+    """Fire the analyst warmup in the background; never blocks startup.
+
+    No-op without a running loop (pipeline built outside asyncio, e.g. tests).
+    """
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        return
+    task = loop.create_task(warm_analyst_model())
+    # Hold a reference — a bare task can be garbage-collected mid-flight.
+    _warmups.add(task)
+    task.add_done_callback(_warmups.discard)
 
 
 def build_tts():

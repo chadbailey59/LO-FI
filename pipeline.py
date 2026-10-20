@@ -24,6 +24,7 @@ from pipecat.audio.vad.silero import SileroVADAnalyzer
 from pipecat.audio.vad.vad_analyzer import VADParams
 from pipecat.frames.frames import (
     ExternalFunctionCallCancelFrame,
+    ExternalFunctionCallInProgressFrame,
     ExternalFunctionCallResultFrame,
     ExternalFunctionCallsStartedFrame,
     TTSSpeakFrame,
@@ -44,6 +45,7 @@ import ingest
 import store
 import tools
 from rag_agent import grounded_question, strip_think
+import services
 from services import build_backend_llm, build_llm, build_stt, build_tts
 from silence_watchdog import SilenceWatchdog
 from tunables import (
@@ -208,19 +210,39 @@ class BackendToolPanel(FrameProcessor):
     The backend's handlers run outside the pipeline, so they can't push RTVI
     frames themselves; LLMWithBackend re-announces each call downstream as
     ExternalFunctionCall*Frames. Render each final result as the same lofi-rag
-    message the cascade handlers send (tools.build_tools)."""
+    message the cascade handlers send (tools.build_tools), and each call's
+    start as a lofi-rag-pending message — an analyst turn runs 10-70 s, so the
+    panel shows the lookup in flight instead of staying empty until it lands."""
 
     def __init__(self):
         super().__init__()
         self._started: dict[str, float] = {}
+
+    async def _pending(self, tool: str, args: dict, active: bool) -> None:
+        await self.push_frame(
+            RTVIServerMessageFrame(
+                data={
+                    "type": tools.RAG_PENDING_MESSAGE_TYPE,
+                    "tool": tool,
+                    "args": args,
+                    "active": active,
+                }
+            )
+        )
 
     async def process_frame(self, frame, direction: FrameDirection):
         await super().process_frame(frame, direction)
         if isinstance(frame, ExternalFunctionCallsStartedFrame):
             for call in frame.function_calls:
                 self._started[call.tool_call_id] = time.perf_counter()
+                # Started phase carries name + id only; args arrive in_progress.
+                await self._pending(call.function_name, {}, True)
+        elif isinstance(frame, ExternalFunctionCallInProgressFrame):
+            args = frame.arguments if isinstance(frame.arguments, dict) else {}
+            await self._pending(frame.function_name, args, True)
         elif isinstance(frame, ExternalFunctionCallCancelFrame):
             self._started.pop(frame.tool_call_id, None)
+            await self._pending(frame.function_name, {}, False)
         elif isinstance(frame, ExternalFunctionCallResultFrame) and frame.is_final:
             started = self._started.pop(frame.tool_call_id, None)
             result = frame.result if isinstance(frame.result, dict) else {}
@@ -251,6 +273,9 @@ def build_pipeline(transport: BaseTransport) -> BuiltBot:
     db_path = config.rag_db_path()
     splitting = config.architecture() == "split" and _index_ready(db_path)
     if splitting:
+        # Load the analyst's weights now, in the background, so the first
+        # delegation doesn't pay the cold load while the user waits.
+        services.warm_analyst()
         # The framework appends its own delegation guidance to this.
         prompt = SPLIT_FRONT_PROMPT
     else:
