@@ -692,12 +692,20 @@ If you already export one of those globally, it affects lofi too. Note that
 `LOFI_OLLAMA_BASE_URL` is *ours* despite the name — it's the URL the bot dials,
 not something ollama reads.
 
+### Prompts and model defaults: `tunables.py`
+
+Prompts are edited directly in [`tunables.py`](tunables.py) — there's no env
+override for them; editing the file IS the mechanism. Model defaults also live
+there, and `LOFI_*` env vars below still override them. Landmine comments mark
+measured, byte-sensitive text — read them before editing.
+
 | Variable | Default | What it does |
 |---|---|---|
 | `LOFI_LLM_MODEL` | `qwen2.5:7b` | Ollama tag for the conversation model (and, in `cascade`, the four retrieval tools). Same string `run_ollama.sh` pulls and the bot serves. Smaller machines: see the model table above. |
 | `LOFI_ARCHITECTURE` | `split` | `split` (default) \| `cascade` — see [Two architectures](#two-architectures-one-env-var). |
 | `LOFI_RAG_LLM_MODEL` | `qwen3:8b` | Ollama tag for the records analyst backend (`split`). Needs a model that emits real API tool calls — `nemotron-3-nano:4b` narrates them as JSON text and fails as the split backend. |
 | `LOFI_RAG_FAST_LLM_MODEL` | `$LOFI_RAG_LLM_MODEL` | Analyst model for the UI's ⚡ fast mode (thinking always off there). A *distinct* fast model needs `OLLAMA_MAX_LOADED_MODELS=4` so nothing gets evicted. |
+| `LOFI_WAIT_LESSON_LANGUAGE` | *(empty = off)* | `split` only. When set, the front teaches one phrase in that language while the analyst works. |
 | `LOFI_LLM_ENGINE` | `ollama` | `ollama` (local) \| `hosted` (any OpenAI-compatible endpoint) — see [Going online](#going-online-the-hosted-llm-escape-hatch). |
 | `LOFI_HOSTED_BASE_URL` | `https://api.openai.com/v1` | Endpoint for `hosted` mode. Key comes from the shell env: `LOFI_HOSTED_API_KEY` (or `OPENAI_API_KEY`). |
 | `LOFI_OLLAMA_BASE_URL` | `http://localhost:11434/v1` | OpenAI-compatible Ollama endpoint (note the trailing `/v1`). The RAG embedder talks to the same host minus `/v1`. |
@@ -758,6 +766,7 @@ lofi/
 ├── pipeline.py               # the one build_pipeline() every bot shares
 ├── services.py               # STT/LLM/TTS builders, engine-dispatched
 ├── config.py                 # env-driven settings, zero-config defaults
+├── tunables.py               # every prompt + model defaults — THE file to edit
 ├── rag_agent.py              # the records analyst (native Ollama API, thinking on)
 ├── tools.py                  # the four retrieval tool schemas + Pipecat wiring
 ├── retrieval.py              # lookup / filter_rows / aggregate / semantic_search
@@ -765,9 +774,6 @@ lofi/
 ├── ingest.py                 # extract → serialize → chunk → embed → index
 ├── silence_watchdog.py       # "I'm still working on it" during long lookups
 ├── spoken_text_filter.py     # TTS filter: "$3,000" → "three thousand dollars"
-├── prompts/
-│   ├── financial_advisor.py  # front prompts (cascade / split)
-│   └── records_analyst.py    # the analyst's prompt + NOT_RECORDS sentinel
 │
 ├── lofi.sh                   # start | stop | status | index-rag | consolidate | configure
 ├── configure.sh              # what can this machine handle? (-v full report, -i model picker)
