@@ -45,7 +45,7 @@ import rag_agent
 import retrieval
 import store
 import tools
-from prompts import financial_advisor, records_analyst
+import tunables
 
 QUERIES_PATH = Path(__file__).resolve().parent / "queries.jsonl"
 
@@ -609,13 +609,9 @@ async def run_isolate_stage(
 DELEGATE_SCHEMA = {
     "type": "function",
     "function": {
-        "name": tools.DELEGATE_TOOL_NAME,
-        "description": tools.LEGACY_DELEGATE_DESCRIPTION,
-        "parameters": {
-            "type": "object",
-            "properties": {"question": {"type": "string"}},
-            "required": ["question"],
-        },
+        "name": tunables.DELEGATE_TOOL_NAME,
+        "description": tunables.DELEGATE_TOOL_DESCRIPTION,
+        "parameters": {"type": "object", "properties": {}, "required": []},
     },
 }
 
@@ -624,7 +620,12 @@ async def _front_delegation(user_messages: list[str], client: httpx.AsyncClient)
     body = {
         "model": config.llm_model(),
         "messages": [
-            {"role": "system", "content": financial_advisor.FRONT_PROMPT},
+            {
+                "role": "system",
+                "content": tunables.SPLIT_FRONT_PROMPT
+                + "\n\n"
+                + tunables.COMPACT_PAIRING_INSTRUCTION,
+            },
             *({"role": "user", "content": m} for m in user_messages),
         ],
         "tools": [DELEGATE_SCHEMA],
@@ -881,7 +882,7 @@ async def _amain(args) -> None:
     embedder = ingest.OllamaEmbedder(config.ollama_api_url(), config.embed_model())
     queries_by_id = {q["id"]: q for q in queries}
 
-    system = financial_advisor.system_prompt(
+    system = tunables.system_prompt(
         PINNED_TODAY, store.date_range(db_path), store.categories(db_path)
     )
 
@@ -907,7 +908,7 @@ async def _amain(args) -> None:
             split_report = await run_split_stage(queries, db_path, embedder, client)
         if args.stage == "front":
             front_report = await run_front_stage(
-                queries, financial_advisor.FRONT_PROMPT, client
+                queries, tunables.SPLIT_FRONT_PROMPT, client
             )
 
     print_report(retrieval_report, toolcall_report, e2e_report, isolate_report, split_report, front_report)

@@ -66,7 +66,7 @@ def test_system_prompt_is_grounded_when_index_present(db, monkeypatch, stub_serv
     import datetime
 
     import store
-    from prompts import financial_advisor
+    import tunables
 
     monkeypatch.setenv("LOFI_RAG_DB", str(db))
     built = pipeline.build_pipeline(fake_transport())
@@ -75,9 +75,9 @@ def test_system_prompt_is_grounded_when_index_present(db, monkeypatch, stub_serv
     first, last = store.date_range(db)
     assert f"The transaction records run from {first} to {last}." in content
     assert "The transaction categories are: " in content
-    assert content.startswith(financial_advisor.BASE_PROMPT)
-    pinned = financial_advisor.system_prompt(datetime.date(2026, 10, 12), (first, last))
-    assert pinned.startswith(financial_advisor.BASE_PROMPT)
+    assert content.startswith(tunables.BASE_PROMPT)
+    pinned = tunables.system_prompt(datetime.date(2026, 10, 12), (first, last))
+    assert pinned.startswith(tunables.BASE_PROMPT)
     assert pinned.endswith(f"Today's date is 2026-10-12. The transaction records run from {first} to {last}.")
 
 
@@ -190,7 +190,7 @@ def test_split_architecture_builds_llm_with_backend(db, monkeypatch):
     # Real LLM services (construction is offline); stub only STT/TTS/VAD.
     from pipecat.pipeline.llm_with_backend import LLMWithBackend
 
-    from prompts import financial_advisor, records_analyst
+    import tunables
 
     for name in ("build_stt", "build_tts", "build_vad_processor"):
         monkeypatch.setattr(pipeline, name, lambda: FrameProcessor())
@@ -200,7 +200,7 @@ def test_split_architecture_builds_llm_with_backend(db, monkeypatch):
 
     # The front holds no records tools — delegate is a builtin, not a context tool.
     assert tool_names(built.context) == []
-    assert built.context.messages[0]["content"].startswith(financial_advisor.OFFLINE_INTRO)
+    assert built.context.messages[0]["content"].startswith(tunables.OFFLINE_INTRO)
 
     lwb = next(p for p in built.pipeline._processors if isinstance(p, LLMWithBackend))
     worker = lwb.backend
@@ -208,7 +208,7 @@ def test_split_architecture_builds_llm_with_backend(db, monkeypatch):
         "aggregate", "filter_rows", "lookup", "semantic_search",
     ]
     backend_system = worker.context.messages[0]["content"]
-    assert records_analyst.SYSTEM_PROMPT in backend_system
+    assert tunables.ANALYST_SYSTEM_PROMPT in backend_system
     assert "Today's date is" in backend_system
 
 
