@@ -696,12 +696,15 @@ async def run_split_stage(queries: list[dict], db_path, embedder, client: httpx.
 
 # ---- stage: followup (delegation after a completed delegation round) -----------
 
-# Production context shape after one completed delegation, captured from the
-# 2026-10-20 smoke-test session (.lofi/logs/bot-20261020-165925.log): delegate
-# tool call → tool ack → spoken waiting narration → developer Backend notes →
-# spoken relay. The live front stopped delegating in exactly this shape
-# (ralph/HUMAN.md §2 note): its own waiting lines read as complete answers to
-# records questions, and at temperature 0 it imitates them without the call.
+# Production context shape after one completed delegation: delegate tool call
+# → tool ack → developer Backend notes → spoken relay. Captured from the
+# 2026-10-20 smoke-test session (.lofi/logs/bot-20261020-165925.log), which
+# also held a spoken waiting narration after each tool ack — those taught the
+# temp-0 front to answer records questions with waiting lines and no call
+# (ralph/HUMAN.md §2 note; baseline evals/results/followup-baseline.json:
+# live misses 3/3). Task 12 keeps narrations out of the context
+# (pipeline.build_records_connector: respond_on_delegate off), so these
+# histories replay the post-fix shape.
 FOLLOWUP_HISTORY = [
     {"role": "assistant", "content": tunables.DEFAULT_GREETING},
     {
@@ -723,7 +726,6 @@ FOLLOWUP_HISTORY = [
         "content": '{"status": "delegated", "backend": "idle"}',
         "tool_call_id": "call_0001",
     },
-    {"role": "assistant", "content": "Let me check that for you. One moment please."},
     {
         "role": "developer",
         "content": "Backend (working): aggregate(filters=[{'column': 'merchant', "
@@ -739,9 +741,9 @@ FOLLOWUP_HISTORY = [
 ]
 
 # Second completed round + chitchat exchange, continuing the same session. One
-# round barely moves delegation (measured 0.957); after this depth the live
-# session missed deterministically (0.826 on the eval set, 0/3 on the turns
-# below, temperature 0, qwen2.5:7b, 2026-10-20).
+# round barely moves delegation; this depth is where the live session missed
+# (temperature 0, qwen2.5:7b, 2026-10-20 — with narrations 0.957/0.826/0 of 3,
+# post-fix shape + amended pairing 0.957/0.913/2 of 3).
 FOLLOWUP_HISTORY_DEEP = FOLLOWUP_HISTORY + [
     {"role": "user", "content": "Um,   Yeah.   What's the total of the transactions?"},
     {
@@ -759,7 +761,6 @@ FOLLOWUP_HISTORY_DEEP = FOLLOWUP_HISTORY + [
         "content": '{"status": "delegated", "backend": "idle"}',
         "tool_call_id": "call_0002",
     },
-    {"role": "assistant", "content": "Let me calculate that for you. One moment please."},
     {
         "role": "developer",
         "content": "Backend (working): aggregate(filters=[{'column': 'merchant', "

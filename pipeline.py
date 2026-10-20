@@ -151,7 +151,15 @@ def build_records_connector():
             return message
 
     return RecordsBackendConnector(
-        frontend_pairing_instruction=COMPACT_PAIRING_INSTRUCTION
+        frontend_pairing_instruction=COMPACT_PAIRING_INSTRUCTION,
+        # Post-delegate re-run narrates the handoff ("Let me check that for
+        # you..."); those narrations accumulate in context as complete-looking
+        # answers to records questions, and after two rounds the temp-0 7B
+        # imitates them without the tool call (measured 2026-10-20,
+        # evals --stage followup: live misses 3/3 with narrations, 1/3 without;
+        # the arguably-conversational "Are you still there?" turn is the 1).
+        # Off: the canned filler in build_pipeline speaks instead.
+        respond_on_delegate=False,
     )
 
 
@@ -277,13 +285,11 @@ def build_pipeline(transport: BaseTransport) -> BuiltBot:
     @front.event_handler("on_function_calls_started")
     async def on_function_calls_started(service, function_calls):
         await service.push_frame(RTVIServerMessageFrame(data={"type": BUSY_MESSAGE_TYPE}))
-        # Split: the front narrates its own handoff — a canned filler on top
-        # is one of three stacked "let me check" lines, and in the context it
-        # teaches the front to answer with waiting lines (measured 2026-10-19).
-        # Cascade: the model is silent during the tool call, so speak it, but
-        # keep it out of the context for the same reason.
-        if not splitting:
-            await tts.queue_frame(TTSSpeakFrame(FILLER_PHRASE, append_to_context=False))
+        # Model is silent during the tool call (split: respond_on_delegate off,
+        # see build_records_connector), so speak the canned filler — out of the
+        # context: waiting lines there teach the front to answer records
+        # questions with waiting lines (measured 2026-10-19 and 2026-10-20).
+        await tts.queue_frame(TTSSpeakFrame(FILLER_PHRASE, append_to_context=False))
 
     processors = [
         transport.input(),

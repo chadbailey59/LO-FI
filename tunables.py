@@ -285,6 +285,11 @@ LEGACY_DELEGATE_DESCRIPTION = (
 # call examples, "never write X as text" clauses, and the word "Backend" —
 # each measured to break one small model or the other. Relay reliability comes
 # from the framework's per-message relay note.
+# Last two sentences (measured 2026-10-20, evals --stage followup): after
+# completed delegation rounds the 7B clarifies or refuses vague/relative-date/
+# bare-id/passphrase questions — this wording routes them to the tool
+# (deep recall 0.783 → 0.913, first-turn split recall 0.609 → 0.870,
+# chitchat precision 1.0 throughout).
 COMPACT_PAIRING_INSTRUCTION = (
     "RECORDS HANDOFF: For ANY question about the user's transactions, spending, "
     "merchants, amounts, dates, totals, balances, documents, or a follow-up to an "
@@ -294,7 +299,13 @@ COMPACT_PAIRING_INSTRUCTION = (
     "handoffs. The analyst's findings arrive later as internal conversation "
     "messages; when one brings a result, tell the user what it says in your own "
     "words, once. Internal progress or thinking notes are never read aloud and "
-    "never guessed from."
+    "never guessed from. A vague or oddly worded records question is still a "
+    "records question: do not ask the user to clarify dates, ranges, or wording, "
+    "and do not refuse — call the tool and the analyst sorts it out. The analyst "
+    "knows today's date and the records themselves, so it resolves things like "
+    "'this month' or 'two months ago' on its own, looks up a bare number as a "
+    "transaction id, and retrieves anything the user stored, a passphrase "
+    "included."
 )
 
 

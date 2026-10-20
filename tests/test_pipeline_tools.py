@@ -365,7 +365,7 @@ def test_cascade_filler_is_spoken_but_kept_out_of_context(db, monkeypatch, stub_
     assert fillers[0].append_to_context is False
 
 
-def test_split_speaks_no_canned_filler(db, monkeypatch):
+def test_split_speaks_canned_filler_out_of_context(db, monkeypatch):
     import asyncio
 
     from pipecat.frames.frames import TTSSpeakFrame
@@ -380,7 +380,20 @@ def test_split_speaks_no_canned_filler(db, monkeypatch):
     front = built.llm.frontend
     handler = front._event_handlers["on_function_calls_started"].handlers[0]
     asyncio.run(handler(front, []))
-    assert not any(isinstance(f, TTSSpeakFrame) for f in built.tts.queued)
+    fillers = [f for f in built.tts.queued if isinstance(f, TTSSpeakFrame)]
+    assert [f.text for f in fillers] == [pipeline.FILLER_PHRASE]
+    # Waiting lines in the context teach the temp-0 front to answer records
+    # questions with waiting lines and no tool call (measured 2026-10-20).
+    assert fillers[0].append_to_context is False
+
+
+def test_split_connector_does_not_rerun_front_on_delegate():
+    # The front's own handoff narration ("Let me check that for you...") comes
+    # from the post-delegate re-run and poisons the context the same way the
+    # canned filler would (measured 2026-10-20: live misses 3/3 after two
+    # rounds). Off: the canned filler speaks instead.
+    connector = pipeline.build_records_connector()
+    assert connector._respond_on_delegate is False
 
 
 def test_watchdog_reminder_skips_context():

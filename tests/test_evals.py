@@ -155,6 +155,18 @@ def test_followup_stage_recall_and_waiting_line_misses():
     assert report["waiting_line_misses"] == 2
 
 
+def test_followup_histories_match_post_task12_production_shape():
+    # Production keeps the front's handoff narration out of the context
+    # (pipeline.build_records_connector: respond_on_delegate off), so the
+    # replayed histories hold no standalone waiting-line assistant messages:
+    # an assistant turn either carries tool_calls or a real answer.
+    for m in run_evals.FOLLOWUP_HISTORY_DEEP:
+        if m["role"] == "assistant" and not m.get("tool_calls"):
+            content = m.get("content") or ""
+            assert "One moment" not in content
+            assert not run_evals.is_deferral(content)
+
+
 def test_followup_stage_chitchat_must_not_delegate():
     report, _ = run_followup([CHIT_Q], ["Doing great, thanks!"])
     assert report["followup_delegation_precision"] == 1.0
