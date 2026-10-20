@@ -43,15 +43,21 @@ from pipecat.transports.base_transport import BaseTransport
 import ingest
 import store
 import tools
-from prompts import records_analyst
-from prompts.financial_advisor import (
-    SPLIT_FRONT_PROMPT,
-    hosted_variant,
-    system_prompt,
-)
 from rag_agent import grounded_question, strip_think
 from services import build_backend_llm, build_llm, build_stt, build_tts
 from silence_watchdog import SilenceWatchdog
+from tunables import (
+    ANALYST_SYSTEM_PROMPT,
+    COMPACT_PAIRING_INSTRUCTION,
+    DELEGATE_TOOL_DESCRIPTION,
+    DELEGATE_TOOL_NAME,
+    FILLER_PHRASE,
+    QUESTION_PREFIX,
+    SPLIT_FRONT_PROMPT,
+    WAIT_LESSON_NUDGE,
+    hosted_variant,
+    system_prompt,
+)
 
 
 @dataclass
@@ -77,7 +83,6 @@ def build_vad_processor() -> VADProcessor:
     )
 
 
-FILLER_PHRASE = "Let me check your records."
 BUSY_MESSAGE_TYPE = tools.BUSY_MESSAGE_TYPE
 
 _missing_index_logged = False
@@ -102,53 +107,6 @@ def build_records_tools() -> list | None:
     return tools.build_tools(db_path, embedder)
 
 
-DELEGATE_NAME = "ask_financial_records"
-
-
-# Pairing instruction sized for small local fronts (the stock one is written
-# for frontier models and drowns them — measured on qwen2.5:7b AND
-# nemotron-3-nano:4b: both stop tool-calling and narrate instead). Landmines
-# this wording deliberately avoids (see prompts/financial_advisor.py): worked
-# call examples, "never write X as text" clauses, and the word "Backend" —
-# each measured to break one small model or the other. Relay reliability comes
-# from the framework's per-message relay note.
-COMPACT_PAIRING_INSTRUCTION = (
-    "RECORDS HANDOFF: For ANY question about the user's transactions, spending, "
-    "merchants, amounts, dates, totals, balances, documents, or a follow-up to an "
-    f"earlier records answer, you MUST call the {DELEGATE_NAME} tool in that same "
-    "reply. Do not answer such questions yourself and never invent numbers. To "
-    "the user there is one assistant: you — never mention the analyst, tools, or "
-    "handoffs. The analyst's findings arrive later as internal conversation "
-    "messages; when one brings a result, tell the user what it says in your own "
-    "words, once. Internal progress or thinking notes are never read aloud and "
-    "never guessed from."
-)
-
-
-# Domain-worded tool description (same lever as the domain name: measured on
-# qwen2.5:7b, the stock "hand the conversation to the backend" description
-# loses to the model's credential-refusal reflex on passphrase questions —
-# this wording delegates them, incl. the saved-passphrase smoke doc, with
-# records/chitchat behavior unchanged). The arithmetic sentence routes "what's
-# that total?" follow-ups to the analyst's aggregate SQL — without it the 7B
-# adds the amounts itself and miscarries digits (measured 2026-10-19: $301.81
-# spoken as "three hundred and61.81"). Keeps the transcript strategy's
-# semantics: one call per reply, no arguments, new request → new call.
-DOMAIN_TOOL_DESCRIPTION = (
-    "Look up anything in the user's own financial records and saved documents: "
-    "transactions, spending, income, accounts, merchants, amounts, dates, totals, "
-    "balances, and anything they saved in documents or notes, including a "
-    "passphrase or code they stored there. All arithmetic is its job too: a "
-    "total, sum, difference, or average, even over amounts already said in "
-    "this conversation. Call this as soon as any part of what "
-    "the user asks needs it, and do the rest yourself. One call per reply, however "
-    "many things the user asked for. It takes no arguments: the analyst reads the "
-    "conversation itself. A request the user makes after your last call needs a "
-    "call of its own, and so does anything the user says about work already handed "
-    "over. Keep talking with the user while it works."
-)
-
-
 def build_records_connector():
     """BackendConnector tuned for a small local front model.
 
@@ -157,7 +115,7 @@ def build_records_connector():
     instruction suppresses calling entirely — a domain-named tool plus the
     compact instruction (and front temperature 0, see build_pipeline) delegates
     3/3. The tool description is domain-worded for the same reason (see
-    DOMAIN_TOOL_DESCRIPTION).
+    DELEGATE_TOOL_DESCRIPTION).
     """
     from pipecat.adapters.schemas.function_schema import FunctionSchema
     from pipecat.pipeline.llm_with_backend import BACKEND_MESSAGE_PREFIX, BackendConnector
@@ -171,8 +129,8 @@ def build_records_connector():
 
             return [
                 FunctionSchema(
-                    name=DELEGATE_NAME,
-                    description=DOMAIN_TOOL_DESCRIPTION,
+                    name=DELEGATE_TOOL_NAME,
+                    description=DELEGATE_TOOL_DESCRIPTION,
                     properties=self.request_strategy.tool_parameters,
                     required=self.request_strategy.tool_required,
                     handler=handler,
@@ -216,8 +174,8 @@ def build_records_backend(db_path):
     # grounded_question keeps grounding out of the system prompt for the native
     # API's KV cache; here the backend context is built once per session, so
     # folding grounding into the system message is equally cache-stable.
-    grounding = grounded_question("", db_path).rsplit("\nQuestion:", 1)[0]
-    backend_system = f"{records_analyst.SYSTEM_PROMPT}\n\n{grounding}"
+    grounding = grounded_question("", db_path).rsplit(QUESTION_PREFIX.rstrip(" "), 1)[0]
+    backend_system = f"{ANALYST_SYSTEM_PROMPT}\n\n{grounding}"
 
     async def _strip_think_output(output):
         text = strip_markdown(strip_think(output.text))
@@ -234,18 +192,6 @@ def build_records_backend(db_path):
         ),
         transform_output=_strip_think_output,
     )
-
-
-# Wait-window mini-lesson (LOFI_WAIT_LESSON_LANGUAGE, split only): while the
-# analyst works, the watchdog's first reminder has the front teach one phrase
-# tied to the user's question. Short and bounded — the analyst's answer queues
-# right behind whatever the lesson generates.
-WAIT_LESSON_NUDGE = (
-    "The records lookup is still running; its result arrives soon. While the "
-    "user waits, teach them one short beginner {language} phrase related to "
-    "what they just asked: the phrase, how it sounds, and what it means — one "
-    "sentence each, then stop. Do not mention the lookup or this note."
-)
 
 
 class BackendToolPanel(FrameProcessor):
