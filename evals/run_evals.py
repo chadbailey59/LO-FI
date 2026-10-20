@@ -610,7 +610,7 @@ DELEGATE_SCHEMA = {
     "type": "function",
     "function": {
         "name": tools.DELEGATE_TOOL_NAME,
-        "description": tools.DELEGATE_DESCRIPTION,
+        "description": tools.LEGACY_DELEGATE_DESCRIPTION,
         "parameters": {
             "type": "object",
             "properties": {"question": {"type": "string"}},

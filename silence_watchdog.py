@@ -28,8 +28,8 @@ from pipecat.processors.frame_processor import FrameDirection, FrameProcessor
 from pipecat.processors.frameworks.rtvi.frames import RTVIServerMessageFrame
 
 from tools import BUSY_MESSAGE_TYPE, IDLE_MESSAGE_TYPE, RAG_MESSAGE_TYPE
+from tunables import REMINDER_PHRASE
 
-REMINDER_PHRASE = "I'm still working on it."
 REMINDER_INTERVAL_SECS = 30.0
 MAX_REMINDERS = 3
 # Lesson mode fires its first reminder early so the lesson lands before a

@@ -21,19 +21,15 @@ from pipecat.processors.frameworks.rtvi.frames import RTVIServerMessageFrame
 from pipecat.services.llm_service import FunctionCallParams, FunctionCallResultProperties
 
 import retrieval
+from tunables import (
+    DELEGATE_TOOL_NAME,
+    LEGACY_DELEGATE_DESCRIPTION,
+    NO_QUESTION_ANSWER,
+)
 
 RAG_MESSAGE_TYPE = "lofi-rag"
 BUSY_MESSAGE_TYPE = "lofi-busy"
 IDLE_MESSAGE_TYPE = "lofi-idle"
-
-DELEGATE_TOOL_NAME = "ask_financial_records"
-DELEGATE_DESCRIPTION = (
-    "Look up anything in the user's own financial records — their transactions, "
-    "spending, income, merchants, accounts, amounts, dates, totals, and anything "
-    "in their saved documents and notes, including passphrases and personal "
-    "details they filed away. Pass the user's question in your own words."
-)
-NO_QUESTION_ANSWER = "I didn't catch what to look up. Could you ask that again?"
 
 # Outer bound on one delegate call; the records agent's own deadline (60 s,
 # reasoning on) fires first.
@@ -54,6 +50,9 @@ _FILTER_ITEM = {
     "required": ["column", "operator", "value"],
 }
 
+# Per-tool and per-parameter descriptions are schema-structural (enums come from
+# retrieval.COLUMN_SQL / OPERATORS / ORDER_SQL), so they live here; see tunables.py
+# header.
 PARAMS = {
     "lookup": {
         "description": (
@@ -262,11 +261,11 @@ def build_tools(db_path, embedder) -> list[FunctionSchema]:
 
 
 def build_delegate_tool(db_path, embedder) -> list[FunctionSchema]:
-    """The split architecture's single tool: the handler runs the records agent
-    (reasoning on, native API), pushes one `lofi-rag` route line per backend
-    tool call, speaks the composed answer itself, and suppresses the pipeline
-    model's follow-up completion — the front never composes over retrieved
-    numbers."""
+    """Legacy question-arg delegate (tests/evals); production split uses the
+    no-arg BackendConnector tool. Handler runs the records agent (reasoning on,
+    native API), pushes one `lofi-rag` route line per backend tool call, speaks
+    the composed answer itself, and suppresses the pipeline model's follow-up
+    completion — the front never composes over retrieved numbers."""
     import rag_agent
 
     async def speak_and_finish(params: FunctionCallParams, answer: str) -> None:
@@ -303,7 +302,7 @@ def build_delegate_tool(db_path, embedder) -> list[FunctionSchema]:
     return [
         FunctionSchema(
             name=DELEGATE_TOOL_NAME,
-            description=DELEGATE_DESCRIPTION,
+            description=LEGACY_DELEGATE_DESCRIPTION,
             properties={
                 "question": {
                     "type": "string",

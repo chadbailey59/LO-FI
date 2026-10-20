@@ -26,7 +26,14 @@ import config
 import retrieval
 import store
 import tools
-from prompts import records_analyst
+from tunables import (
+    ANALYST_SYSTEM_PROMPT,
+    FALLBACK_ANSWER,
+    GROUNDING_CATEGORIES,
+    GROUNDING_DATE_RANGE,
+    GROUNDING_TODAY,
+    QUESTION_PREFIX,
+)
 
 TOOL_DEFS = [
     {
@@ -43,11 +50,6 @@ TOOL_DEFS = [
     }
     for name, spec in tools.PARAMS.items()
 ]
-
-FALLBACK_ANSWER = (
-    "Sorry, I couldn't reach your records just now. Please try that question again."
-)
-
 
 @dataclass
 class AgentResult:
@@ -69,14 +71,14 @@ def grounded_question(question: str, db_path, today: datetime.date | None = None
     """Question as the analyst sees it: today's date, the records' date range,
     and the category list prepended, keeping the system prompt byte-stable."""
     today = today or datetime.date.today()
-    parts = [f"Today's date is {today.isoformat()}."]
+    parts = [GROUNDING_TODAY.format(today=today.isoformat())]
     span = store.date_range(db_path)
     if span:
-        parts.append(f"The transaction records run from {span[0]} to {span[1]}.")
+        parts.append(GROUNDING_DATE_RANGE.format(start=span[0], end=span[1]))
     names = store.categories(db_path)
     if names:
-        parts.append(f"The transaction categories are: {', '.join(names)}.")
-    return " ".join(parts) + f"\nQuestion: {question}"
+        parts.append(GROUNDING_CATEGORIES.format(categories=", ".join(names)))
+    return " ".join(parts) + QUESTION_PREFIX + question
 
 
 def _elapsed_ms(start: float) -> float:
@@ -126,7 +128,7 @@ async def answer_question(
     # History rides between system and question; grounding stays in the final
     # user message so the system prompt stays byte-stable for the KV cache.
     messages = [
-        {"role": "system", "content": system_prompt or records_analyst.SYSTEM_PROMPT},
+        {"role": "system", "content": system_prompt or ANALYST_SYSTEM_PROMPT},
         *(history or []),
         {"role": "user", "content": grounded_question(question, db_path, today)},
     ]
