@@ -118,7 +118,7 @@ def build_stt():
     )
 
 
-def _online_key(name: str) -> str:
+def online_key(name: str) -> str:
     """The named online-mode key, or exit saying which one to add."""
     key = os.getenv(name, "").strip()
     if not key:
@@ -134,7 +134,7 @@ def build_online_stt():
     from pipecat.services.deepgram.stt import DeepgramSTTService
 
     return DeepgramSTTService(
-        api_key=_online_key("DEEPGRAM_API_KEY"),
+        api_key=online_key("DEEPGRAM_API_KEY"),
         settings=DeepgramSTTService.Settings(
             model=config.online_stt_model(),
             # nova-3 code-switches on "multi" — one connection covers an
@@ -154,7 +154,7 @@ def build_online_llm(temperature: float | None = None):
     settings = OpenAILLMService.Settings(model=config.online_llm_model())
     if temperature is not None:
         settings.temperature = temperature
-    return OpenAILLMService(api_key=_online_key("OPENAI_API_KEY"), settings=settings)
+    return OpenAILLMService(api_key=online_key("OPENAI_API_KEY"), settings=settings)
 
 
 def build_online_tts():
@@ -162,7 +162,7 @@ def build_online_tts():
     from pipecat.services.cartesia.tts import CartesiaTTSService
 
     return CartesiaTTSService(
-        api_key=_online_key("CARTESIA_API_KEY"),
+        api_key=online_key("CARTESIA_API_KEY"),
         settings=CartesiaTTSService.Settings(voice=config.online_tts_voice()),
         text_filters=[SpokenTextFilter()],
     )

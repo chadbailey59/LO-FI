@@ -46,7 +46,15 @@ import store
 import tools
 from rag_agent import grounded_question, strip_think
 import services
-from services import build_backend_llm, build_llm, build_stt, build_tts
+from services import (
+    build_backend_llm,
+    build_llm,
+    build_online_llm,
+    build_online_stt,
+    build_online_tts,
+    build_stt,
+    build_tts,
+)
 from silence_watchdog import SilenceWatchdog
 from tunables import (
     ANALYST_SYSTEM_PROMPT,
@@ -58,8 +66,11 @@ from tunables import (
     QUESTION_PREFIX,
     SPLIT_FRONT_PROMPT,
     WAIT_LESSON_NUDGE,
+    online_system_prompt,
     system_prompt,
 )
+
+ONLINE_MODE = "online"
 
 
 @dataclass
@@ -107,6 +118,35 @@ def build_records_tools() -> list | None:
         return None
     embedder = ingest.OllamaEmbedder(config.ollama_api_url(), config.embed_model())
     return tools.build_tools(db_path, embedder)
+
+
+# Shown in the What's Running panel's rag field when an online session has no
+# public index to retrieve from.
+NO_PUBLIC_INDEX_NOTICE = "no public index — run ./lofi.sh index-rag with OPENAI_API_KEY set"
+
+
+def public_rag_summary() -> str:
+    """`rag` field for an online session: public index stats, or the notice."""
+    db_path = config.public_rag_db_path()
+    if not store.has_index(db_path):
+        return NO_PUBLIC_INDEX_NOTICE
+    return store.stats_summary(db_path, config.public_rag_data_dir())
+
+
+def build_public_tools() -> list | None:
+    """Online mode's tools: semantic_search over the public index, or none.
+
+    The public db is the only one online code opens — the private records db
+    is not mounted into an online session at all.
+    """
+    db_path = config.public_rag_db_path()
+    if not store.has_index(db_path):
+        logger.info(f"{NO_PUBLIC_INDEX_NOTICE} ({db_path})")
+        return None
+    embedder = ingest.OpenAIEmbedder(
+        config.online_embed_model(), services.online_key("OPENAI_API_KEY")
+    )
+    return tools.build_public_tools(db_path, embedder)
 
 
 def build_records_connector():
@@ -306,7 +346,52 @@ class BackendToolPanel(FrameProcessor):
         await self.push_frame(frame, direction)
 
 
-def build_pipeline(transport: BaseTransport) -> BuiltBot:
+def build_online_pipeline(transport: BaseTransport) -> BuiltBot:
+    """Online session: Deepgram STT -> OpenAI LLM over the public index ->
+    Cartesia TTS. Nothing here opens the private db or reaches Ollama."""
+    public_tools = build_public_tools()
+    prompt = online_system_prompt(language=config.wait_lesson_language())
+    context = (
+        LLMContext(messages=[{"role": "system", "content": prompt}], tools=public_tools)
+        if public_tools
+        else LLMContext(messages=[{"role": "system", "content": prompt}])
+    )
+    user_aggregator, assistant_aggregator = LLMContextAggregatorPair(context)
+    llm = build_online_llm()
+    tts = build_online_tts()
+    pipeline = Pipeline(
+        [
+            transport.input(),
+            build_vad_processor(),
+            build_online_stt(),
+            user_aggregator,
+            llm,
+            # No lesson callback: the wait-window lesson fills a 10-70 s local
+            # analyst turn, and cloud retrieval lands in about a second.
+            SilenceWatchdog(),
+            tts,
+            transport.output(),
+            assistant_aggregator,
+        ]
+    )
+    return BuiltBot(
+        pipeline=pipeline,
+        context=context,
+        user_aggregator=user_aggregator,
+        assistant_aggregator=assistant_aggregator,
+        llm=llm,
+        tts=tts,
+    )
+
+
+def build_pipeline(transport: BaseTransport, mode: str = "offline") -> BuiltBot:
+    """Assemble the bot for one session.
+
+    ``mode``: ``"online"`` builds the cloud cascade over the public index;
+    every other value builds the offline stack.
+    """
+    if mode == ONLINE_MODE:
+        return build_online_pipeline(transport)
     records_tools = build_records_tools()
     db_path = config.rag_db_path()
     splitting = config.architecture() == "split" and _index_ready(db_path)

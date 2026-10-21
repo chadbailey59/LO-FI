@@ -209,9 +209,12 @@ def build_backend_tools(db_path, embedder) -> list[FunctionSchema]:
     ]
 
 
-def build_tools(db_path, embedder) -> list[FunctionSchema]:
-    """Four FunctionSchemas with bundled handlers — pipecat registers them for
-    any LLMContext that advertises the schemas."""
+# Online mode retrieves from the public index, which holds documents only.
+PUBLIC_TOOL_NAMES = ("semantic_search",)
+
+
+def _rtvi_tools(db_path, embedder, names) -> list[FunctionSchema]:
+    """FunctionSchemas for `names`, each handler pushing a `lofi-rag` route line."""
 
     funcs = {
         "lookup": retrieval.lookup,
@@ -254,13 +257,25 @@ def build_tools(db_path, embedder) -> list[FunctionSchema]:
     return [
         FunctionSchema(
             name=name,
-            description=spec["description"],
-            properties=spec["properties"],
-            required=spec["required"],
+            description=PARAMS[name]["description"],
+            properties=PARAMS[name]["properties"],
+            required=PARAMS[name]["required"],
             handler=make_handler(name, funcs[name]),
         )
-        for name, spec in PARAMS.items()
+        for name in names
     ]
+
+
+def build_tools(db_path, embedder) -> list[FunctionSchema]:
+    """Four FunctionSchemas with bundled handlers — pipecat registers them for
+    any LLMContext that advertises the schemas."""
+    return _rtvi_tools(db_path, embedder, tuple(PARAMS))
+
+
+def build_public_tools(db_path, embedder) -> list[FunctionSchema]:
+    """Online mode's one tool: semantic_search over the public index, pushing
+    the same `lofi-rag` route lines as build_tools."""
+    return _rtvi_tools(db_path, embedder, PUBLIC_TOOL_NAMES)
 
 
 def build_delegate_tool(db_path, embedder) -> list[FunctionSchema]:
