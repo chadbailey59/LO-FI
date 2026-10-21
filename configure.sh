@@ -12,7 +12,7 @@
 # curated Ollama LLM catalog ranked by fit (memory footprint AND estimated
 # speech latency), and both TTS engines (Kokoro, Piper). Interactive mode walks
 # through choosing an engine+model combo, approves it against the hardware, and
-# (only with your explicit confirmation) writes it to .env, installs missing
+# (only with your explicit confirmation) writes it to .lofirc, installs missing
 # engine support, and pulls missing models. Without -i it never writes.
 #
 # Usage:
@@ -25,9 +25,11 @@
 set -euo pipefail
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$REPO"
-ENV_FILE="${LOFI_ENV_FILE:-.env}"
+# .lofirc holds settings; LOFI_ENV_FILE repoints it. Keys live in .env, which
+# configure never reads or writes.
+ENV_FILE="${LOFI_ENV_FILE:-.lofirc}"
 [[ -f "$ENV_FILE" ]] && { set -a; source "$ENV_FILE"; set +a; }
-# .env first (it may set LOFI_MODEL_DIR), then resolve the one model directory
+# Settings first (they may set LOFI_MODEL_DIR), then resolve the one model directory
 # and export HF_HOME / OLLAMA_MODELS / LOFI_PIPER_DOWNLOAD_DIR / KOKORO_* from it.
 LOFI_REPO_ROOT="$REPO"
 # shellcheck source=scripts/model_dir.sh
@@ -45,7 +47,7 @@ Usage:
                            machine's memory, then pull it into the Ollama
                            store as hf.co/<org>/<repo>:<quant> (default quant
                            Q4_K_M); prints the LOFI_LLM_MODEL line to use it
-                           but never writes .env
+                           but never writes .lofirc
   ./configure.sh -v        the above, plus a full hardware profile (CPU/GPU
                            cores, est. memory bandwidth, disk) and per-slot
                            model catalogs with fit verdicts:
@@ -55,7 +57,7 @@ Usage:
                              TTS  Kokoro, Piper
   ./configure.sh -i        interactively pick an STT/LLM/TTS combo, get it
                            approved against the hardware, then (each step
-                           gated on your confirmation) write it to .env,
+                           gated on your confirmation) write it to .lofirc,
                            install missing engine support, and pull missing
                            models
 
@@ -353,7 +355,7 @@ PY
     exit 1
   fi
   pass "pulled ${HF_TAG}"
-  echo "  to use it, set in .env (configure won't write it for you):"
+  echo "  to use it, set in ${ENV_FILE} (configure won't write it for you):"
   echo "     LOFI_LLM_MODEL=${HF_TAG}"
   exit 0
 fi
@@ -1004,7 +1006,7 @@ if (( INTERACTIVE )); then
     piper)  TTS_VOICE_VAR="LOFI_PIPER_VOICE" ;;
   esac
   echo
-  echo "  .env lines for this combo:"
+  echo "  ${ENV_FILE} lines for this combo:"
   echo "     LOFI_STT_ENGINE=${CHOSEN_STT_ENGINE}"
   echo "     ${STT_MODEL_VAR}=${CHOSEN_STT_MODEL}"
   echo "     LOFI_LLM_MODEL=${CHOSEN_LLM}"
@@ -1020,25 +1022,25 @@ if (( INTERACTIVE )); then
     [[ "$ans" =~ ^[Yy] ]] || { echo "configure: no changes made"; exit 1; }
   fi
 
-  # --- Apply: write .env (with backup), only the model/engine keys ----------
+  # --- Apply: write .lofirc (with backup), only the model/engine keys -------
   env_set() {  # KEY VALUE — update in place or append; never touches other lines
-    if [[ -f .env ]] && grep -q "^$1=" .env; then
-      sed -i '' "s|^$1=.*|$1=$2|" .env
+    if [[ -f "$ENV_FILE" ]] && grep -q "^$1=" "$ENV_FILE"; then
+      sed -i '' "s|^$1=.*|$1=$2|" "$ENV_FILE"
     else
-      echo "$1=$2" >> .env
+      echo "$1=$2" >> "$ENV_FILE"
     fi
   }
-  read -r -p "write these to .env? (existing .env backed up to .env.bak) [y/N] " ans || ans=""
+  read -r -p "write these to ${ENV_FILE}? (existing ${ENV_FILE} backed up to ${ENV_FILE}.bak) [y/N] " ans || ans=""
   if [[ "$ans" =~ ^[Yy] ]]; then
-    [[ -f .env ]] && cp .env .env.bak
+    [[ -f "$ENV_FILE" ]] && cp "$ENV_FILE" "${ENV_FILE}.bak"
     env_set LOFI_STT_ENGINE "$CHOSEN_STT_ENGINE"
     env_set "$STT_MODEL_VAR" "$CHOSEN_STT_MODEL"
     env_set LOFI_LLM_MODEL "$CHOSEN_LLM"
     env_set LOFI_TTS_ENGINE "$CHOSEN_TTS_ENGINE"
     env_set "$TTS_VOICE_VAR" "$CHOSEN_VOICE"
-    pass "wrote .env (LOFI_STT_ENGINE, ${STT_MODEL_VAR}, LOFI_LLM_MODEL, LOFI_TTS_ENGINE, ${TTS_VOICE_VAR})"
+    pass "wrote ${ENV_FILE} (LOFI_STT_ENGINE, ${STT_MODEL_VAR}, LOFI_LLM_MODEL, LOFI_TTS_ENGINE, ${TTS_VOICE_VAR})"
   else
-    echo "  skipped — paste the lines above into .env yourself if you want them"
+    echo "  skipped — paste the lines above into ${ENV_FILE} yourself if you want them"
   fi
 
   # --- Apply: install missing engine support (uv sync --extra ...) ----------
@@ -1089,7 +1091,7 @@ if (( INTERACTIVE )); then
           (( NEED_EMBED )) && ! ollama pull "$EMBED_MODEL" \
             && warn "ollama pull ${EMBED_MODEL} failed — check the tag name and network"
         else
-          warn "no Ollama server running — start ./scripts/run_ollama.sh (it pulls LOFI_LLM_MODEL from .env on startup)"
+          warn "no Ollama server running — start ./scripts/run_ollama.sh (it pulls LOFI_LLM_MODEL from .lofirc on startup)"
         fi
       fi
       if (( NEED_WHISPER )); then

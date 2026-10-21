@@ -137,11 +137,11 @@ uv sync --extra local-audio
 > want: `uv sync --extra local-audio --extra piper`. (`./configure.sh -i` preserves
 > whatever is already installed.)
 
-Optionally copy the config template (everything is optional — the bot runs with an
-empty or absent `.env`):
+Optionally copy the settings template (everything is optional — the bot runs with an
+empty or absent `.lofirc`):
 
 ```bash
-cp env.example .env
+cp lofirc.example .lofirc
 ```
 
 ### 2. Fetch the models (the one-time online step)
@@ -674,9 +674,9 @@ The workshop question: *what can this computer actually run?* The process:
 
 ## Configuration
 
-Every knob is an environment variable (read from `.env` if present). All are
-optional — the shown value is the default. See [`env.example`](env.example) for
-the copy-paste template.
+Every knob is an environment variable (read from `.lofirc` if present; hosted
+API keys live in `.env`). All are optional — the shown value is the default.
+See [`lofirc.example`](lofirc.example) for the copy-paste template.
 
 **`LOFI_` means it's ours.** Anything read by this repo carries the prefix, so
 you can tell at a glance what's safe to change and what belongs to someone else.
@@ -792,7 +792,8 @@ lofi/
 ├── evals/                    # eval harness: run_evals.py, queries.jsonl, sweep.sh
 ├── tests/                    # offline pytest suite (no network, fake embedder)
 │
-├── env.example               # documented config knobs (copy to .env)
+├── lofirc.example            # documented config knobs (copy to .lofirc)
+├── env.example               # the three hosted API key names (copy to .env)
 ├── .python-version           # 3.12
 ├── pyproject.toml            # uv project + pinned deps
 ├── uv.lock                   # locked dependency versions

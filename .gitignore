@@ -10,7 +10,11 @@ models/
 # User documents indexed by RAG
 data/
 
-# Local config (copied from env.example; config only, never secrets)
+# Local settings (copied from lofirc.example; config only, never secrets)
+.lofirc
+.lofirc.bak
+
+# Hosted API keys (copied from env.example)
 .env
 .env.bak
 

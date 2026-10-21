@@ -1,8 +1,9 @@
 """config.py — env-driven settings for the fully-offline voice bot.
 
 Single source of truth for every configurable knob. All values come from the
-process environment (optionally populated from ``./.env``), with sensible
-defaults so ``uv run bot.py`` works with **zero configuration**.
+process environment (optionally populated from ``./.lofirc`` for settings and
+``./.env`` for the hosted API keys), with sensible defaults so
+``uv run bot.py`` works with **zero configuration**.
 
 Two kinds of settings live here:
 
@@ -58,9 +59,9 @@ REPO_ROOT = Path(__file__).resolve().parent
 DEFAULT_MODEL_DIR = "./models"
 
 # --- Repo-local cache defaults, established at import time ------------------
-# Load ./.env FIRST — before resolving LOFI_MODEL_DIR or setdefault-ing any
-# cache var — so user overrides win over these defaults. Mirrors
-# scripts/model_dir.sh (bash) and scripts/prefetch_models.py.
+# Load the config files FIRST — before resolving LOFI_MODEL_DIR or
+# setdefault-ing any cache var — so user overrides win over these defaults.
+# Mirrors scripts/model_dir.sh (bash) and scripts/prefetch_models.py.
 
 # API keys are honored from the SHELL environment only — snapshot them before
 # .env loads so a key pasted into .env is detectably refused.
@@ -69,14 +70,31 @@ _SHELL_KEY_SNAPSHOT = {
     for name in ("LOFI_HOSTED_API_KEY", "OPENAI_API_KEY")
 }
 
-try:
-    from dotenv import load_dotenv
+# Settings live in `.lofirc`, the three hosted API keys in `.env`.
+SETTINGS_FILE_NAME = ".lofirc"
+KEYS_FILE_NAME = ".env"
+HOSTED_KEY_NAMES = ("OPENAI_API_KEY", "DEEPGRAM_API_KEY", "CARTESIA_API_KEY")
 
-    # LOFI_ENV_FILE overrides which env file loads (lofi.sh honors the same
-    # variable; tests point it at /dev/null for isolation).
-    load_dotenv(os.environ.get("LOFI_ENV_FILE", REPO_ROOT / ".env"))
-except Exception:  # python-dotenv is a dep, but never hard-fail on config import
-    pass
+
+def _load_config_files(root: Path | None = None) -> None:
+    """Load ``.lofirc`` (settings), then ``.env`` (keys), as dotenv defaults.
+
+    Both loads are no-override, so the shell environment beats both files and
+    ``.lofirc`` beats ``.env`` for a name in both. ``LOFI_ENV_FILE`` overrides
+    which settings file loads (lofi.sh and configure.sh honor the same
+    variable; tests point it at /dev/null for isolation); the keys file is
+    always ``.env`` at the repo root.
+    """
+    root = Path(root) if root is not None else REPO_ROOT
+    try:
+        from dotenv import load_dotenv
+    except Exception:  # python-dotenv is a dep, but never hard-fail on import
+        return
+    load_dotenv(os.environ.get("LOFI_ENV_FILE") or root / SETTINGS_FILE_NAME)
+    load_dotenv(root / KEYS_FILE_NAME)
+
+
+_load_config_files()
 
 
 def _resolve_repo_path(raw: str) -> Path:
@@ -136,9 +154,9 @@ os.environ.setdefault("OLLAMA_MODELS", str(MODELS_DIR / "ollama"))
 
 
 # --- Legacy env names (everything we own gained a LOFI_ prefix) ------------
-# Renaming is silent by nature: an old key in .env is simply never read, and the
-# bot comes up on defaults with no hint that the setting was dropped. Detect and
-# say so instead.
+# Renaming is silent by nature: an old key in a config file is simply never
+# read, and the bot comes up on defaults with no hint that the setting was
+# dropped. Detect and say so instead.
 _LEGACY_ENV_NAMES = (
     "STT_ENGINE", "TTS_ENGINE", "WHISPER_MODEL", "FASTER_WHISPER_MODEL",
     "MOONSHINE_MODEL", "KOKORO_VOICE", "KOKORO_MODEL_PATH", "KOKORO_VOICES_PATH",
@@ -149,28 +167,46 @@ _LEGACY_ENV_NAMES = (
 )
 
 
-def legacy_env_keys() -> list[str]:
-    """Pre-prefix keys still present in ``./.env``.
-
-    Only the repo's own .env is scanned, never the ambient environment: names
-    like ``LOG_LEVEL`` and ``GREETING`` are generic enough that someone's shell
-    profile could export them for entirely unrelated reasons, and warning about
-    that would be noise. A key in .env, by contrast, was meant for this bot.
-    """
-    path = REPO_ROOT / ".env"
-    if not path.is_file():
-        return []
-    found = []
+def _dotenv_keys(path: Path) -> list[str]:
+    """Variable names assigned in a dotenv-style file; [] when unreadable."""
     try:
-        for line in path.read_text().splitlines():
-            line = line.strip()
-            if not line or line.startswith("#") or "=" not in line:
-                continue
-            key = line.split("=", 1)[0].strip()
-            if key in _LEGACY_ENV_NAMES:
-                found.append(key)
+        if not path.is_file():
+            return []
+        lines = path.read_text().splitlines()
     except OSError:
         return []
+    keys = []
+    for line in lines:
+        line = line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        keys.append(line.split("=", 1)[0].strip())
+    return keys
+
+
+def legacy_settings_in_env(root: Path | None = None) -> list[str]:
+    """``LOFI_*`` settings sitting in ``.env``, which now holds keys only.
+
+    Both files are dotenv loads, so the values still apply — the names are
+    reported so one startup line can point them at ``.lofirc``.
+    """
+    root = Path(root) if root is not None else REPO_ROOT
+    return [k for k in _dotenv_keys(root / KEYS_FILE_NAME) if k.startswith("LOFI_")]
+
+
+def legacy_env_keys() -> list[str]:
+    """Pre-prefix keys still present in ``./.lofirc`` or ``./.env``.
+
+    Only the repo's own files are scanned, never the ambient environment: names
+    like ``LOG_LEVEL`` and ``GREETING`` are generic enough that someone's shell
+    profile could export them for entirely unrelated reasons, and warning about
+    that would be noise. A key in a config file, by contrast, was meant for this bot.
+    """
+    found = []
+    for name in (SETTINGS_FILE_NAME, KEYS_FILE_NAME):
+        for key in _dotenv_keys(REPO_ROOT / name):
+            if key in _LEGACY_ENV_NAMES and key not in found:
+                found.append(key)
     return found
 
 
@@ -179,8 +215,17 @@ if _legacy:
     print(
         "lofi: WARNING — these .env keys are no longer read; every setting this "
         "repo owns now takes a LOFI_ prefix (the unprefixed names left are the "
-        "four read by huggingface_hub and ollama — see env.example):\n"
+        "four read by huggingface_hub and ollama — see lofirc.example):\n"
         + "\n".join(f"    {k}  ->  LOFI_{k}" for k in _legacy),
+        file=sys.stderr,
+    )
+
+_misplaced = legacy_settings_in_env()
+if _misplaced:
+    print(
+        "lofi: settings belong in .lofirc now, .env holds only "
+        f"{', '.join(HOSTED_KEY_NAMES)} — move from .env: {', '.join(_misplaced)} "
+        "(they still apply)",
         file=sys.stderr,
     )
 

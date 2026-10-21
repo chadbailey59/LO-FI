@@ -18,8 +18,8 @@
 set -euo pipefail
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$REPO"
-# .env supplies DEFAULTS only — values already in the environment (e.g. set on
-# the command line) win, matching config.py's load_dotenv behavior.
+# Config files supply DEFAULTS only — values already in the environment (e.g.
+# set on the command line) win, matching config.py's load_dotenv behavior.
 load_env_defaults() {
   local file="$1" line key value
   [[ -f "$file" ]] || return 0
@@ -30,8 +30,16 @@ load_env_defaults() {
     if [[ -z "${!key+x}" ]]; then export "$key=$value"; fi
   done < "$file"
 }
-ENV_FILE="${LOFI_ENV_FILE:-.env}"
+# .lofirc holds settings (LOFI_ENV_FILE repoints it), .env the hosted keys.
+ENV_FILE="${LOFI_ENV_FILE:-.lofirc}"
 load_env_defaults "$ENV_FILE"
+load_env_defaults ".env"
+# Settings left in .env still apply (both are dotenv loads); cmd_start says
+# where they belong.
+MISPLACED_SETTINGS=""
+if [[ -f .env ]]; then
+  MISPLACED_SETTINGS="$(grep -oE '^[[:space:]]*LOFI_[A-Za-z0-9_]+' .env 2>/dev/null | tr -d ' ' | paste -sd, - || true)"
+fi
 LOFI_REPO_ROOT="$REPO"
 # shellcheck source=scripts/model_dir.sh
 . "$REPO/scripts/model_dir.sh"
@@ -101,6 +109,10 @@ cmd_start() {
   esac
 
   mkdir -p "$STATE_DIR"
+
+  if [[ -n "$MISPLACED_SETTINGS" ]]; then
+    echo "start: settings belong in .lofirc now — .env holds only OPENAI_API_KEY, DEEPGRAM_API_KEY, CARTESIA_API_KEY; move from .env: $MISPLACED_SETTINGS (they still apply)" >&2
+  fi
 
   local bot_pid
   bot_pid="$(recorded_pid bot)"
