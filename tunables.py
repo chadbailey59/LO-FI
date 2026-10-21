@@ -406,6 +406,33 @@ ANALYST_SYSTEM_PROMPT = (
 )
 
 
+# Compact pairing instruction for the analyst's BackendLLMWorker, replacing
+# pipecat's stock BACKEND_PAIRING_INSTRUCTION (written for frontier models).
+# Live 2026-10-21 session (.lofi/logs/bot-20261021-102346.log) showed qwen3:8b
+# inverting the >> spoken mark under the stock wording: working narration
+# marked spoken (relayed as context-poisoning waiting lines), final answer
+# unmarked (63 s mute until the user spoke again). This wording states both
+# rules directly: working notes stay unmarked, the final answer always starts
+# with >>. Measured 2026-10-21 (ralph/probe_task15.py, qwen3:8b, production
+# request shape): final answer marked 8/8 fresh questions and 5/5 replays of
+# the live round-1 context, 0 marked narrations — stock scored the same on the
+# probe but demonstrably allowed the live inversion. The >> literal is
+# pipecat's backend_llm_worker.SPOKEN_MARK — keep them in sync.
+BACKEND_COMPACT_PAIRING_INSTRUCTION = (
+    "You are the backend of a voice assistant. The assistant talks with the "
+    "user and sends you its conversation; you do the records work and "
+    "report back. The assistant handles small talk itself.\n\n"
+    "WHAT THE USER HEARS: Only a message that begins with >> is spoken to "
+    "the user; everything else is a private working note nobody hears. "
+    "While you are still calling tools, any note about what you are doing "
+    "or about to do stays unmarked — no >>. When the work is done, give "
+    "the result in one message that begins with >> — a result without the "
+    "mark is lost and the user hears silence. Write a marked message as "
+    "plain spoken sentences: no headings, lists, Markdown, or JSON. Never "
+    "repeat a result you already marked."
+)
+
+
 # Grounding sentences, shared by the cascade suffix (system_prompt above) and
 # the analyst's per-call user-message preamble (rag_agent.grounded_question).
 GROUNDING_TODAY = "Today's date is {today}."

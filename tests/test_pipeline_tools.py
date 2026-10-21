@@ -231,6 +231,17 @@ def test_split_frontend_gets_domain_named_delegate(db, monkeypatch):
     assert "delegate" not in builtin
 
 
+def test_backend_worker_uses_compact_pairing_instruction(db):
+    # Compact instruction replaces the stock frontier-sized one (Task 15).
+    import tunables
+    from pipecat.workers.llm.backend_llm_worker import BACKEND_PAIRING_INSTRUCTION
+
+    worker = pipeline.build_records_backend(str(db))
+    appended = worker.llm._appended_system_instructions
+    assert tunables.BACKEND_COMPACT_PAIRING_INSTRUCTION in appended
+    assert BACKEND_PAIRING_INSTRUCTION not in appended
+
+
 def test_backend_transform_strips_think_and_is_awaitable(db):
     import asyncio
 

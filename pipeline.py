@@ -50,6 +50,7 @@ from services import build_backend_llm, build_llm, build_stt, build_tts
 from silence_watchdog import SilenceWatchdog
 from tunables import (
     ANALYST_SYSTEM_PROMPT,
+    BACKEND_COMPACT_PAIRING_INSTRUCTION,
     COMPACT_PAIRING_INSTRUCTION,
     DELEGATE_TOOL_DESCRIPTION,
     DELEGATE_TOOL_NAME,
@@ -236,6 +237,9 @@ def build_records_backend(db_path):
             tools=tools.build_backend_tools(db_path, embedder),
         ),
         transform_output=_strip_think_output,
+        # Stock instruction inverts the >> mark on qwen3:8b — see the
+        # BACKEND_COMPACT_PAIRING_INSTRUCTION comment in tunables.py.
+        pairing_instruction=BACKEND_COMPACT_PAIRING_INSTRUCTION,
     )
 
 
