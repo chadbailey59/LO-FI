@@ -179,6 +179,20 @@ def _preflight_rag() -> None:
     store.preflight(Path(config.rag_db_path()), config.embed_model(), config.ollama_api_url())
 
 
+def _preflight_local() -> None:
+    """Run the local-stack preflights, unless this process is online-only.
+
+    An online-only process speaks to Deepgram/OpenAI/Cartesia, so Ollama,
+    the Whisper weights, and the embed model are all irrelevant to it.
+    """
+    if config.online_only():
+        logger.info("online-only process — skipping the local LLM/STT/RAG preflights")
+        return
+    _preflight_llm(config.ollama_base_url())
+    _preflight_stt()
+    _preflight_rag()
+
+
 async def main() -> None:
     """`uv run bot.py` entry point. It loads `.env` (config only — no
         secrets), assembles the pipeline, and hands the worker to a `WorkerRunner`,
@@ -190,9 +204,7 @@ async def main() -> None:
 
     # Fail fast (with guidance) if the local LLM server/model isn't ready, rather
     # than silently producing no spoken reply when the first turn hits the LLM.
-    _preflight_llm(config.ollama_base_url())
-    _preflight_stt()
-    _preflight_rag()
+    _preflight_local()
 
     transport = build_transport()
     built = build_pipeline(transport)

@@ -6,7 +6,9 @@
 # (default .lofi/). An Ollama you started yourself is never touched.
 #
 # Usage:
-#   ./lofi.sh start [-t moq|headphones]   # bring up Ollama if needed, then the bot (default: moq)
+#   ./lofi.sh start [-t moq|headphones] [--online-only]
+#                                         # bring up Ollama if needed, then the bot (default: moq)
+#                                         # --online-only: cloud-only sessions, no Ollama, no local models
 #   ./lofi.sh stop                        # stop only what lofi started (recorded PIDs)
 #   ./lofi.sh status [-v]                 # machine, ownership, bot, models (configured + downloaded), rag; -v adds full catalogs
 #   ./lofi.sh index-rag                   # build/rebuild both document indexes
@@ -111,10 +113,11 @@ cmd_index_rag() {
 }
 
 cmd_start() {
-  local transport="moq"
+  local transport="moq" online_only=0
   while [[ $# -gt 0 ]]; do
     case "$1" in
       -t|--transport) transport="${2:-}"; shift 2 || shift ;;
+      --online-only)  online_only=1; shift ;;
       -h|--help)      usage; exit 0 ;;
       *) echo "lofi: unknown start option '$1' (try ./lofi.sh -h)" >&2; exit 1 ;;
     esac
@@ -123,6 +126,10 @@ cmd_start() {
     moq|headphones) ;;
     *) echo "lofi: unknown transport '$transport' — valid: moq (default), headphones" >&2; exit 1 ;;
   esac
+  # The local-audio bot has no online stack to run.
+  if [[ "$online_only" == 1 && "$transport" == "headphones" ]]; then
+    echo "lofi: --online-only needs the browser bot — drop '-t headphones'" >&2; exit 1
+  fi
 
   mkdir -p "$STATE_DIR"
 
@@ -137,21 +144,27 @@ cmd_start() {
     exit 1
   fi
 
-  if ! ollama_up; then
-    echo "start: bringing up Ollama (store → ${OLLAMA_MODELS}; log → ollama.log)"
-    nohup ./scripts/run_ollama.sh >"$REPO/ollama.log" 2>&1 &
-    echo $! >"$STATE_DIR/ollama.pid"
-  elif ! model_ready; then
-    echo "start: Ollama already running — pulling $(missing_models) into it..."
-    ./scripts/run_ollama.sh
-  fi
-  if ! model_ready; then
-    echo "start: waiting for $(missing_models) (first pull can take a few minutes)..."
-    for _ in $(seq 1 900); do model_ready && break; sleep 1; done
-    model_ready || { echo "start: $(missing_models) not ready — see ollama.log" >&2; exit 1; }
-  fi
+  if [[ "$online_only" == 1 ]]; then
+    export LOFI_ONLINE_ONLY=1
+    echo "start: --online-only — sessions run on Deepgram/OpenAI/Cartesia; Ollama stays down."
+    echo "start: pick ☁️ online on the page; an offline connect is refused."
+  else
+    if ! ollama_up; then
+      echo "start: bringing up Ollama (store → ${OLLAMA_MODELS}; log → ollama.log)"
+      nohup ./scripts/run_ollama.sh >"$REPO/ollama.log" 2>&1 &
+      echo $! >"$STATE_DIR/ollama.pid"
+    elif ! model_ready; then
+      echo "start: Ollama already running — pulling $(missing_models) into it..."
+      ./scripts/run_ollama.sh
+    fi
+    if ! model_ready; then
+      echo "start: waiting for $(missing_models) (first pull can take a few minutes)..."
+      for _ in $(seq 1 900); do model_ready && break; sleep 1; done
+      model_ready || { echo "start: $(missing_models) not ready — see ollama.log" >&2; exit 1; }
+    fi
 
-  model_lines
+    model_lines
+  fi
 
   mkdir -p "$STATE_DIR/logs"
   if [[ -f "$STATE_DIR/bot.log" && ! -L "$STATE_DIR/bot.log" ]]; then
@@ -265,10 +278,12 @@ cmd_get_debug_log() {
 cmd_help() {
   case "$1" in
     start)
-      echo "usage: ./lofi.sh start [-t moq|headphones]"
+      echo "usage: ./lofi.sh start [-t moq|headphones] [--online-only]"
       echo "  -t, --transport   moq (browser bot, the default — serves MoQ, plus WebRTC"
       echo "                    when installed via 'uv sync --extra webrtc')"
       echo "                    headphones (local mic/speakers via PyAudio — wear headphones)"
+      echo "  --online-only     serve online sessions only (LOFI_ONLINE_ONLY=1): no Ollama,"
+      echo "                    no local model preflights; an offline connect is refused"
       echo "  brings up Ollama first if nothing answers on \$OLLAMA_HOST (and records its pid)" ;;
     stop)
       echo "usage: ./lofi.sh stop"

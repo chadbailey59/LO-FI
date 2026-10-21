@@ -1,0 +1,123 @@
+"""Session mode plumbing: which mode a connect request selects, and the
+fail-fast checks guarding each mode.
+
+Every test monkeypatches the three online keys — the repo's real `.env` is
+dotenv-loaded when `config` imports, so an unpatched test would read live
+keys (never their values; only presence is ever asserted).
+"""
+
+import pytest
+
+import bot
+import bot_browser
+import config
+
+
+@pytest.fixture(autouse=True)
+def fake_keys(monkeypatch):
+    for name in config.ONLINE_KEY_NAMES:
+        monkeypatch.setenv(name, f"fake-{name.lower()}")
+    monkeypatch.delenv("LOFI_ONLINE_ONLY", raising=False)
+
+
+class FakeWebSocket:
+    """Stands in for the starlette WebSocket the runner hands /ws-client."""
+
+    def __init__(self, **query):
+        self.query_params = dict(query)
+
+
+def ws_args(**query):
+    from pipecat.runner.types import WebSocketRunnerArguments
+
+    return WebSocketRunnerArguments(
+        websocket=FakeWebSocket(**query), transport_type="websocket"
+    )
+
+
+def webrtc_args(body=None):
+    from pipecat.runner.types import SmallWebRTCRunnerArguments
+
+    return SmallWebRTCRunnerArguments(webrtc_connection=object(), body=body)
+
+
+def moq_args():
+    from pipecat.runner.types import RunnerArguments
+
+    return RunnerArguments()
+
+
+def test_session_mode_from_query():
+    assert bot_browser.session_mode(ws_args(mode="online")) == "online"
+    assert bot_browser.session_mode(ws_args(mode="offline")) == "offline"
+    assert bot_browser.session_mode(ws_args()) == "offline"
+    assert bot_browser.session_mode(ws_args(mode="ONLINE")) == "online"
+    assert bot_browser.session_mode(ws_args(mode="banana")) == "offline"
+    # MoQ serve mode carries no per-connection request — always offline.
+    assert bot_browser.session_mode(moq_args()) == "offline"
+
+
+def test_session_mode_from_webrtc_request_data():
+    assert bot_browser.session_mode(webrtc_args({"mode": "online"})) == "online"
+    assert bot_browser.session_mode(webrtc_args({"mode": "offline"})) == "offline"
+    assert bot_browser.session_mode(webrtc_args({})) == "offline"
+    assert bot_browser.session_mode(webrtc_args(None)) == "offline"
+    assert bot_browser.session_mode(webrtc_args("not-a-dict")) == "offline"
+
+
+def test_online_connect_missing_keys_lists_all(monkeypatch):
+    monkeypatch.setenv("DEEPGRAM_API_KEY", "")
+    monkeypatch.delenv("CARTESIA_API_KEY", raising=False)
+    with pytest.raises(RuntimeError) as excinfo:
+        bot_browser.session_mode(ws_args(mode="online"))
+    message = str(excinfo.value)
+    assert "DEEPGRAM_API_KEY" in message
+    assert "CARTESIA_API_KEY" in message
+    assert "OPENAI_API_KEY" not in message
+
+
+def test_online_connect_with_all_keys_is_allowed():
+    assert bot_browser.session_mode(ws_args(mode="online")) == "online"
+
+
+def test_online_only_rejects_offline_connect(monkeypatch):
+    monkeypatch.setenv("LOFI_ONLINE_ONLY", "1")
+    with pytest.raises(RuntimeError) as excinfo:
+        bot_browser.session_mode(ws_args(mode="offline"))
+    assert "--online-only" in str(excinfo.value)
+
+
+def test_online_only_defaults_a_bare_connect_to_online(monkeypatch):
+    monkeypatch.setenv("LOFI_ONLINE_ONLY", "1")
+    assert bot_browser.session_mode(ws_args()) == "online"
+    assert bot_browser.session_mode(moq_args()) == "online"
+
+
+def test_online_only_flag_parsing(monkeypatch):
+    assert config.online_only() is False
+    for raw in ("1", "true", "TRUE", "yes", "on"):
+        monkeypatch.setenv("LOFI_ONLINE_ONLY", raw)
+        assert config.online_only() is True, raw
+    for raw in ("", "0", "false", "no"):
+        monkeypatch.setenv("LOFI_ONLINE_ONLY", raw)
+        assert config.online_only() is False, raw
+
+
+def test_online_only_skips_local_preflights(monkeypatch):
+    def boom(*args, **kwargs):
+        raise AssertionError("local preflight ran in an online-only process")
+
+    monkeypatch.setattr(bot, "_preflight_llm", boom)
+    monkeypatch.setattr(bot, "_preflight_stt", boom)
+    monkeypatch.setattr(bot, "_preflight_rag", boom)
+    monkeypatch.setenv("LOFI_ONLINE_ONLY", "1")
+    bot._preflight_local()
+
+
+def test_local_preflights_run_by_default(monkeypatch):
+    ran = []
+    monkeypatch.setattr(bot, "_preflight_llm", lambda url: ran.append(("llm", url)))
+    monkeypatch.setattr(bot, "_preflight_stt", lambda: ran.append(("stt",)))
+    monkeypatch.setattr(bot, "_preflight_rag", lambda: ran.append(("rag",)))
+    bot._preflight_local()
+    assert [entry[0] for entry in ran] == ["llm", "stt", "rag"]

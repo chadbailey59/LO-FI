@@ -439,6 +439,16 @@ def missing_online_keys() -> list[str]:
     return [name for name in ONLINE_KEY_NAMES if not os.getenv(name, "").strip()]
 
 
+def online_only() -> bool:
+    """Whether this process serves online sessions only (LOFI_ONLINE_ONLY,
+    set by ``./lofi.sh start --online-only``).
+
+    Skips the local LLM/STT/RAG preflights, so the bot starts with Ollama
+    down; a connect asking for offline is refused.
+    """
+    return _get("LOFI_ONLINE_ONLY", "").strip().lower() in ("1", "true", "yes", "on")
+
+
 def public_rag_data_dir() -> str:
     """Documents safe to send to the cloud (LOFI_PUBLIC_RAG_DATA_DIR, default
     ``$LOFI_RAG_DATA_DIR/public``).

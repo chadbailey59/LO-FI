@@ -251,6 +251,13 @@ def test_per_command_help_start(tmp_path):
     assert "moq" in result.stdout and "headphones" in result.stdout
 
 
+def test_per_command_help_start_documents_online_only(tmp_path):
+    result = run_lofi("start", tmp_path, f"127.0.0.1:{closed_port()}", extra_args=["help"])
+    assert result.returncode == 0
+    assert "--online-only" in result.stdout
+    assert "LOFI_ONLINE_ONLY=1" in result.stdout
+
+
 def test_models_command_removed(tmp_path):
     result = run_lofi("models", tmp_path, f"127.0.0.1:{closed_port()}")
     assert result.returncode == 1

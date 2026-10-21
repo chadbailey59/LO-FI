@@ -52,8 +52,8 @@ except ImportError:
 from pipecat.workers.runner import WorkerRunner
 
 import store
-from bot import _configure_logging, _preflight_llm, _preflight_rag, _preflight_stt
-from pipeline import build_pipeline
+from bot import _configure_logging, _preflight_local
+from pipeline import ONLINE_MODE, build_pipeline
 from scripts.print_models import model_entries
 
 # Shell env wins over .env (matches config.py and lofi.sh).
@@ -96,6 +96,62 @@ def _serve_client_dist(app) -> None:
         return FileResponse(
             CLIENT_DIST / "index.html", headers={"Cache-Control": "no-cache"}
         )
+
+
+OFFLINE_MODE = "offline"
+
+
+def _requested_mode(runner_args) -> str | None:
+    """The mode the connect request asked for, lowercased, or None.
+
+    WebSocket sessions carry it as `?mode=` on the /ws-client URL; SmallWebRTC
+    sessions carry it as `requestData: {"mode": …}` in the /api/offer body
+    (query params on /api/offer never reach the bot). MoQ serve mode has no
+    per-connection request.
+    """
+    kind = _transport_kind(runner_args)
+    if kind == "websocket":
+        raw = runner_args.websocket.query_params.get("mode")
+    elif kind == "webrtc":
+        body = runner_args.body
+        raw = body.get("mode") if isinstance(body, dict) else None
+    else:
+        raw = None
+    return raw.strip().lower() if isinstance(raw, str) and raw.strip() else None
+
+
+def session_mode(runner_args) -> str:
+    """Which stack this connection runs on: `"online"` or `"offline"`.
+
+    Offline is the default and the fallback for anything unrecognized. Online
+    is refused up front when any of the three keys is missing, naming them all
+    at once; in an `--online-only` process the refusal runs the other way and
+    a bare connect defaults to online.
+    """
+    requested = _requested_mode(runner_args)
+    if requested == ONLINE_MODE:
+        mode = ONLINE_MODE
+    elif requested == OFFLINE_MODE:
+        mode = OFFLINE_MODE
+    else:
+        mode = ONLINE_MODE if config.online_only() else OFFLINE_MODE
+
+    if mode == OFFLINE_MODE and config.online_only():
+        raise RuntimeError(
+            "this bot was started with --online-only — the local stack is not "
+            "ready, so an offline session cannot run. Pick ☁️ online on the "
+            "page, or restart without --online-only."
+        )
+    if mode == ONLINE_MODE:
+        missing = config.missing_online_keys()
+        if missing:
+            raise RuntimeError(
+                "online session needs cloud credentials — missing from .env: "
+                f"{', '.join(missing)}. Add them and reconnect, or pick "
+                "🔌 offline on the page."
+            )
+    logger.info(f"session mode: {mode}")
+    return mode
 
 
 def _lofi_config_message() -> dict:
@@ -269,9 +325,11 @@ def _register_webrtc_handlers(transport, worker) -> None:
         await worker.cancel()
 
 
-async def run_bot(transport: BaseTransport, runner_args: RunnerArguments) -> None:
+async def run_bot(
+    transport: BaseTransport, runner_args: RunnerArguments, mode: str = OFFLINE_MODE
+) -> None:
     """Assemble and run the pipeline for one connected browser client."""
-    built = build_pipeline(transport)
+    built = build_pipeline(transport, mode=mode)
     worker = PipelineWorker(built.pipeline, params=PipelineParams())
 
     client_ready = asyncio.Event()
@@ -303,15 +361,16 @@ async def run_bot(transport: BaseTransport, runner_args: RunnerArguments) -> Non
 
 async def bot(runner_args: RunnerArguments) -> None:
     """Entry point the Pipecat dev runner discovers and calls per connection."""
+    # Resolve (and vet) the mode before any transport exists, so a refused
+    # session never leaves a half-open peer connection behind.
+    mode = session_mode(runner_args)
     transport = await create_transport(runner_args, transport_params)
-    await run_bot(transport, runner_args)
+    await run_bot(transport, runner_args, mode=mode)
 
 
 if __name__ == "__main__":
     _configure_logging()
-    _preflight_llm(config.ollama_base_url())
-    _preflight_stt()
-    _preflight_rag()
+    _preflight_local()
 
     from pipecat.runner.run import app, main
 
