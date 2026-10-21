@@ -283,8 +283,9 @@ $env:LOFI_LLM_MODEL = "llama3.2:1b"
 $env:LOFI_ARCHITECTURE = "cascade"
 ```
 
-Native Windows is the happy path for the default `webrtc` transport: loopback
-UDP works here, unlike WSL2, so WebRTC's Opus-encoded media needs no fallback.
+Native Windows is the happy path for online sessions' `webrtc` transport:
+loopback UDP works here, unlike WSL2, so WebRTC's Opus-encoded media needs no
+fallback.
 
 ### Route B: WSL2
 
@@ -346,9 +347,10 @@ Open the page with **`?transport=websocket`** — WebSocket is the only
 transport that works here: MoQ's QUIC and WebRTC's media are both UDP, which
 never crosses the Windows↔WSL boundary (verified in NAT and mirrored modes,
 Hyper-V firewall open, raw-UDP probe). The WebSocket transport is pure TCP and
-crosses the boundary the same way the web page itself does. The client's
-default is `webrtc` and it does fall back to websocket on its own, but that
-costs ~15–30 s of failing first — so pin the param:
+crosses the boundary the same way the web page itself does. Offline sessions
+already default to websocket; an **online** session defaults to `webrtc` and
+falls back to websocket on its own, but that costs ~15–30 s of failing first —
+so pin the param and the mode toggle leaves the transport alone:
 
 ```
 http://localhost:7860/?transport=websocket
@@ -404,17 +406,28 @@ fully offline — the browser talks to the bot over loopback, no internet):
 ./lofi.sh start    # open http://localhost:7860 in any browser
 ```
 
-The default browser transport is **SmallWebRTC** — the classic voice-bot
-transport, UDP media over loopback, in the base install (aiortc ships a
-pure-Python wheel). A connect that fails falls back automatically, once, to
-**websocket**; the full chain is **moq → webrtc → websocket**, and
-`?transport=` picks a starting point:
+**The browser transport follows the session mode.** An offline session is
+allowed to have no network at all, and WebRTC can't connect airgapped — with
+wi-fi off, ICE gathers no usable candidate (browsers exclude loopback, STUN is
+unreachable). So:
 
-- **SmallWebRTC** (`?transport=webrtc`, *the default*): UDP media over
-  loopback. Needs UDP to reach the bot — so not across Windows↔WSL2.
-- **WebSocket** (`?transport=websocket`): pure TCP, works in every browser and
-  across every boundary (including Windows↔WSL2, where UDP never crosses).
-  Pin this one on WSL2 to skip the webrtc attempt.
+| Session mode | Default transport | Why |
+|---|---|---|
+| `🔌 offline` | **websocket** | pure TCP to localhost — connects with wi-fi off, and crosses Windows↔WSL2 |
+| `☁️ online` | **webrtc** | a network exists by definition; UDP media over loopback is the lowest-latency path |
+
+Flipping the mode toggle reloads the page onto that mode's transport (the
+toggle is pre-connect only). A failed webrtc connect still falls back
+automatically, once, to **websocket**. `?transport=` pins one transport for
+the whole session and outranks the mode:
+
+- **WebSocket** (`?transport=websocket`, *offline default*): pure TCP, works in
+  every browser and across every boundary (including Windows↔WSL2, where UDP
+  never crosses). Pin this one on WSL2 so online sessions skip the webrtc
+  attempt.
+- **SmallWebRTC** (`?transport=webrtc`, *online default*): UDP media over
+  loopback, in the base install (aiortc ships a pure-Python wheel). Needs UDP
+  to reach the bot — so not across Windows↔WSL2, and not with wi-fi off.
 - **MoQ over QUIC** (`?transport=moq`): media-over-QUIC via WebTransport,
   which Safari and Firefox don't ship yet (Chrome/Edge only).
 
@@ -536,7 +549,7 @@ never sent to the browser, and never appear in the What's Running panel.
 | Language model | `qwen2.5:7b` front + `qwen3:8b` records analyst *(defaults)* via **Ollama** | Local, OpenAI-compatible endpoint; env-configurable. The split architecture's analyst backend (`LOFI_RAG_LLM_MODEL`) answers from your records. |
 | Text-to-speech | `KokoroTTSService` *(default)* | Natural local neural voice (kokoro-onnx). Alternative via `LOFI_TTS_ENGINE`: `piper` |
 | Turn-taking | Silero VAD | Barge-in / interruptions, fully local (bundled with Pipecat) |
-| Transport | `SmallWebRTCTransport` (browser) *(default)* | free echo cancellation via `getUserMedia`; auto-falls back to `?transport=websocket` (pure TCP, any browser, any boundary). `?transport=moq` opts into media-over-QUIC |
+| Transport | `FastAPIWebsocketTransport` offline / `SmallWebRTCTransport` online *(per session mode)* | free echo cancellation via `getUserMedia`; websocket is pure TCP so offline works airgapped, webrtc auto-falls back to it. `?transport=moq` opts into media-over-QUIC |
 | Alternative transport | `LocalAudioTransport` | PyAudio mic + speaker I/O (requires headphones) |
 | Online session *(opt-in)* | `DeepgramSTTService` + `OpenAILLMService` + `CartesiaTTSService` | Picked per session in the browser; retrieves from the public index only — see [Online sessions](#online-sessions-the-other-half-of-the-toggle) |
 

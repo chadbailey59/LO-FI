@@ -1,6 +1,13 @@
 import "./style.css";
 import type { TransportState } from "@pipecat-ai/client-js";
-import { createClient, pickTransport, startBot, type SessionMode } from "./connection";
+import {
+  attachBotAudio,
+  createClient,
+  pickTransport,
+  startBot,
+  transportPinned,
+  type SessionMode,
+} from "./connection";
 import {
   attachConfigPanel,
   attachModeToggle,
@@ -45,17 +52,28 @@ function sessionMode(): SessionMode {
 }
 
 // Default offline; a valid ?mode= in the URL pre-selects the toggle so a
-// shared link (or the moq→webrtc→websocket fallback reload below) survives.
+// shared link (or the fallback/mode reload below) survives.
 const requestedMode = new URLSearchParams(window.location.search).get("mode");
 if (requestedMode === "online") modeSelect.value = "online";
 
+const transportName = pickTransport(sessionMode());
+
+// Transport follows the mode, so flipping modes reloads the page onto the new
+// mode's transport (the toggle is disabled while connected — always
+// pre-connect). sessionStorage survives the reload, so the per-transport
+// fallback flags carry over. A pinned ?transport= keeps its transport: record
+// the mode in the URL in place.
 modeSelect.addEventListener("change", () => {
   const url = new URL(window.location.href);
   url.searchParams.set("mode", sessionMode());
-  window.history.replaceState(null, "", url);
+  if (transportPinned()) {
+    window.history.replaceState(null, "", url);
+    return;
+  }
+  url.searchParams.delete("autoconnect");
+  window.location.assign(url);
 });
 
-const transportName = pickTransport();
 document.querySelector<HTMLSpanElement>("#transport-name")!.textContent = transportName;
 
 // Connect failed: reload once onto the next transport in the chain and
@@ -86,6 +104,7 @@ function fallBackToNextTransport(): boolean {
 }
 
 const client = createClient(transportName, render);
+attachBotAudio(client);
 const transcript = attachTranscript(client, transcriptPane);
 attachConfigPanel(client, configLines);
 attachRagPanel(client, ragTurns);

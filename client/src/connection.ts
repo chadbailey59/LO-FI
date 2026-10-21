@@ -1,4 +1,4 @@
-import { PipecatClient, type TransportState } from "@pipecat-ai/client-js";
+import { PipecatClient, RTVIEvent, type TransportState } from "@pipecat-ai/client-js";
 import { MoqTransport } from "@pipecat-ai/moq-transport";
 import { SmallWebRTCTransport } from "@pipecat-ai/small-webrtc-transport";
 import { WebSocketTransport } from "@pipecat-ai/websocket-transport";
@@ -10,16 +10,26 @@ export type SessionMode = "offline" | "online";
 
 const TRANSPORT_NAMES: TransportName[] = ["moq", "webrtc", "websocket"];
 
-// ?transport=moq|webrtc|websocket wins; otherwise webrtc — the classic
-// voice-bot transport, UDP media over loopback, aiortc in the base install.
-// A failed connect falls back once to websocket (pure TCP, crosses the
-// Windows↔WSL boundary where neither QUIC nor WebRTC media do); see
-// fallBackToNextTransport in main.ts. WSL2 attendees pin ?transport=websocket
-// to skip the ~15-30 s webrtc attempt.
-export function pickTransport(): TransportName {
+// True when ?transport= names a real transport. That pin outranks the session
+// mode, so the mode toggle leaves the transport alone.
+export function transportPinned(): boolean {
+  const param = new URLSearchParams(window.location.search).get("transport");
+  return TRANSPORT_NAMES.includes(param as TransportName);
+}
+
+// A pinned ?transport=moq|webrtc|websocket wins; otherwise the session mode
+// picks. Offline → websocket: pure TCP to localhost, the one transport that
+// connects with wi-fi off (airgapped, WebRTC's ICE gathers no usable candidate
+// — browsers exclude loopback and STUN is unreachable). It is also the only
+// path across Windows↔WSL2, where UDP never crosses. Online → webrtc: a
+// network exists by definition and UDP media over loopback is the
+// lowest-latency path; a failed connect falls back once to websocket (see
+// fallBackToNextTransport in main.ts), which costs ~15-30 s on WSL2, so pin
+// ?transport=websocket there.
+export function pickTransport(mode: SessionMode): TransportName {
   const param = new URLSearchParams(window.location.search).get("transport");
   if (TRANSPORT_NAMES.includes(param as TransportName)) return param as TransportName;
-  return "webrtc";
+  return mode === "online" ? "webrtc" : "websocket";
 }
 
 function buildTransport(transportName: TransportName) {
@@ -38,6 +48,20 @@ export function createClient(
     callbacks: {
       onTransportStateChanged: onState,
     },
+  });
+}
+
+// SmallWebRTC delivers bot audio as a media track the page must attach and
+// play; websocket and MoQ transports play through their own audio pipelines
+// and emit no track. Hidden autoplay element carries whichever track arrives
+// (Connect click precedes the track, so autoplay-with-sound is permitted).
+export function attachBotAudio(client: PipecatClient): void {
+  const el = document.createElement("audio");
+  el.autoplay = true;
+  document.body.append(el);
+  client.on(RTVIEvent.TrackStarted, (track, participant) => {
+    if (participant?.local || track.kind !== "audio") return;
+    el.srcObject = new MediaStream([track]);
   });
 }
 

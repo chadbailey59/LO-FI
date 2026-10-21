@@ -1,9 +1,10 @@
 """Browser voice bot — same brain, echo cancellation free from the browser's getUserMedia.
 
-Serves the lofi client (client/dist/) and offers three transports: SmallWebRTC
-(the client's default, needs `uv sync --extra webrtc`), WebSocket (pure TCP —
-the client's automatic fallback after a failed webrtc connect, and the only
-path that crosses Windows↔WSL2), and MoQ/QUIC (`?transport=moq`, moq_transport.py).
+Serves the lofi client (client/dist/) and offers three transports. The client
+picks by session mode: WebSocket for offline (pure TCP — connects with wi-fi
+off, and the only path that crosses Windows↔WSL2), SmallWebRTC for online
+(needs `uv sync --extra webrtc`; falls back to WebSocket after a failed
+connect). MoQ/QUIC is opt-in (`?transport=moq`, moq_transport.py).
 
 Run:
     ./lofi.sh start
@@ -151,9 +152,9 @@ def _lofi_config_message(mode: str = OFFLINE_MODE) -> dict:
 
 def build_transport_params() -> dict:
     """Transports the runner offers via /start: SmallWebRTC when aiortc is
-    installed (uv sync --extra webrtc) — the client's default; WebSocket
-    always — the client's automatic fallback; the QUIC entry when its
-    bindings are available on this platform."""
+    installed (uv sync --extra webrtc) — what online sessions pick; WebSocket
+    always — what offline sessions pick, and webrtc's fallback; the QUIC entry
+    when its bindings are available on this platform."""
     params = moq_transport_params()
 
     # Plain WebSocket (pure TCP): crosses any boundary that forwards TCP,

@@ -279,8 +279,8 @@ cmd_help() {
   case "$1" in
     start)
       echo "usage: ./lofi.sh start [-t moq|headphones] [--online-only]"
-      echo "  -t, --transport   moq (browser bot, the default — serves SmallWebRTC (the"
-      echo "                    client's default), MoQ and websocket)"
+      echo "  -t, --transport   moq (browser bot, the default — serves websocket (offline"
+      echo "                    sessions), SmallWebRTC (online sessions) and MoQ)"
       echo "                    headphones (local mic/speakers via PyAudio — wear headphones)"
       echo "  --online-only     serve online sessions only (LOFI_ONLINE_ONLY=1): no Ollama,"
       echo "                    no local model preflights; an offline connect is refused"

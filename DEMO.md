@@ -30,11 +30,16 @@ uv run pytest -q          # green
 ./lofi.sh start
 ```
 
-Open the printed URL. The browser connects over **SmallWebRTC** by default and
-falls back to WebSocket automatically if that connect fails. (`?transport=`
-pins a starting point; MoQ garbles audio and is not demo-safe.) **On WSL2,
-pin WebSocket** — UDP never crosses the boundary, so the default costs you
-15–30 s of failing first:
+Open the printed URL. The transport follows the session mode. Offline sessions
+connect over **WebSocket** — pure TCP to localhost, the one transport that still
+works with wi-fi off — so Beats 1–4 survive the airgap move. Flipping to online
+reloads the page onto **SmallWebRTC** (UDP media over loopback, fastest), which
+falls back to WebSocket on its own if that connect fails. (`?transport=` pins
+one transport for the whole session and the mode toggle then leaves it alone;
+MoQ garbles audio and is not demo-safe.)
+
+**On WSL2, pin WebSocket before Beat 5** — UDP never crosses the boundary, so
+online's webrtc default costs you 15–30 s of failing first:
 
 ```bash
 echo 'http://localhost:7860/?transport=websocket'
@@ -124,9 +129,11 @@ has no German.)
 ## Beat 5 — the online flip (the privacy boundary, out loud)
 
 The contrast beat. Same page, same bot, one control: flip `🔌 offline` to
-`☁️ online` and reconnect. The `⚠️ ONLINE MODE` banner goes red, and the
-What's Running panel repaints with Deepgram, OpenAI and Cartesia — read the
-service names out to the room before you say a word to the bot.
+`☁️ online`. The page reloads onto the online transport (webrtc — the
+transport-name chip next to Connect shows it); hit **Connect**. The
+`⚠️ ONLINE MODE` banner goes red, and the What's Running panel repaints with
+Deepgram, OpenAI and Cartesia — read the service names out to the room before
+you say a word to the bot.
 
 > **Say:** "Roughly, what's the standard deduction for a single filer?"
 >
@@ -142,7 +149,8 @@ service names out to the room before you say a word to the bot.
 > isn't filtered out by a prompt, it is never opened. Online code is wired to
 > `config.public_rag_db_path()`, full stop.
 
-Then flip back to `🔌 offline`, reconnect, and ask for the passphrase again —
+Then flip back to `🔌 offline` (reloads onto websocket), Connect, and ask
+for the passphrase again —
 *BLUE MANATEE 436921*, from the same machine, thirty seconds later. The data
 didn't move; the session did.
 
