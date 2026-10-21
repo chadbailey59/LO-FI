@@ -2,6 +2,7 @@ import { RTVIEvent, type PipecatClient } from "@pipecat-ai/client-js";
 
 export const CONFIG_MESSAGE_TYPE = "lofi-config";
 export const RAG_MESSAGE_TYPE = "lofi-rag";
+export const RAG_PENDING_MESSAGE_TYPE = "lofi-rag-pending";
 export const MODE_MESSAGE_TYPE = "lofi-mode";
 const BUSY_MESSAGE_TYPE = "lofi-busy";
 const IDLE_MESSAGE_TYPE = "lofi-idle";
@@ -59,10 +60,41 @@ function routeLine(route: RagRoute): string {
   return `${route.tool} ${args} \u00b7 ${route.count} rows \u00b7 ${Math.round(route.elapsed_ms)}ms`;
 }
 
+interface LofiRagPending {
+  type: string;
+  tool: string;
+  args: Record<string, unknown>;
+  active: boolean;
+}
+
+// An analyst lookup runs 10-70s; show it in flight so silence doesn't read as
+// "nothing is happening". One call at a time, so one pending line.
+function renderPending(panel: HTMLElement, message: LofiRagPending): void {
+  clearPending(panel);
+  if (!message.active) return;
+  const turn = document.createElement("div");
+  turn.className = "rag-turn rag-pending";
+  const line = document.createElement("p");
+  line.className = "rag-route";
+  const args = JSON.stringify(message.args ?? {});
+  line.textContent = `${message.tool} ${args === "{}" ? "" : args} \u00b7 working\u2026`;
+  turn.append(line);
+  panel.prepend(turn);
+}
+
+function clearPending(panel: HTMLElement): void {
+  for (const node of panel.querySelectorAll(".rag-pending")) node.remove();
+}
+
 export function attachRagPanel(client: PipecatClient, panel: HTMLElement): void {
   client.on(RTVIEvent.ServerMessage, (data: unknown) => {
     const message = data as Partial<LofiRag> | null;
+    if (message?.type === RAG_PENDING_MESSAGE_TYPE) {
+      renderPending(panel, message as unknown as LofiRagPending);
+      return;
+    }
     if (message?.type !== RAG_MESSAGE_TYPE) return;
+    clearPending(panel);
     const turn = document.createElement("div");
     turn.className = "rag-turn";
     const line = document.createElement("p");
@@ -87,22 +119,47 @@ export function attachRagPanel(client: PipecatClient, panel: HTMLElement): void 
   });
 }
 
+// Vaporwave color per model role (style.css .cfg-*); LLM is sea foam green.
+const ROLE_CLASSES: Record<string, string> = {
+  STT: "cfg-stt",
+  LLM: "cfg-llm",
+  ANALYST: "cfg-analyst",
+  TTS: "cfg-tts",
+  EMBED: "cfg-embed",
+};
+
 export function attachConfigPanel(client: PipecatClient, panel: HTMLElement): void {
   client.on(RTVIEvent.ServerMessage, (data: unknown) => {
     const message = data as Partial<LofiConfig> | null;
     if (message?.type !== CONFIG_MESSAGE_TYPE) return;
-    const lines = (message.models ?? []).flatMap((entry) => [
-      `${entry.role.padEnd(8)}${entry.model}`,
-      `       ${entry.path}`,
-    ]);
-    lines.push(
-      `OLLAMA ${message.ollama_host}`,
-      `       ${message.ollama_started_by_lofi ? OWNERSHIP.lofi : OWNERSHIP.foreign}`,
-      `ARCH   ${message.architecture ?? "cascade"}`,
-      `ENGINE ${message.llm_engine === "hosted" ? `hosted @ ${message.hosted_host}` : "ollama (local)"}`,
-      `RAG    ${message.rag}`,
+    panel.replaceChildren();
+    const append = (text: string, className?: string) => {
+      if (!className) {
+        panel.append(text);
+        return;
+      }
+      const span = document.createElement("span");
+      span.className = className;
+      span.textContent = text;
+      panel.append(span);
+    };
+    for (const entry of message.models ?? []) {
+      // "qwen2.5:7b (Ollama @ …)" → role + name colored, detail plain.
+      const detailAt = entry.model.indexOf(" (");
+      const name = detailAt === -1 ? entry.model : entry.model.slice(0, detailAt);
+      const detail = detailAt === -1 ? "" : entry.model.slice(detailAt);
+      append(`${entry.role.padEnd(8)}${name}`, ROLE_CLASSES[entry.role]);
+      append(`${detail}\n       ${entry.path}\n`);
+    }
+    append(
+      [
+        `OLLAMA ${message.ollama_host}`,
+        `       ${message.ollama_started_by_lofi ? OWNERSHIP.lofi : OWNERSHIP.foreign}`,
+        `ARCH   ${message.architecture ?? "cascade"}`,
+        `ENGINE ${message.llm_engine === "hosted" ? `hosted @ ${message.hosted_host}` : "ollama (local)"}`,
+        `RAG    ${message.rag}`,
+      ].join("\n"),
     );
-    panel.textContent = lines.join("\n");
   });
 }
 

@@ -91,7 +91,11 @@ def _serve_client_dist(app) -> None:
 
     @app.get("/", include_in_schema=False)
     async def client_index():
-        return FileResponse(CLIENT_DIST / "index.html")
+        # no-cache: revalidate index.html on every load so a rebuilt dist's
+        # hashed asset names reach the browser on a plain reload.
+        return FileResponse(
+            CLIENT_DIST / "index.html", headers={"Cache-Control": "no-cache"}
+        )
 
 
 def _lofi_config_message() -> dict:

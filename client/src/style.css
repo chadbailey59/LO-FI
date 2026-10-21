@@ -171,6 +171,32 @@ button {
   border-radius: 4px;
 }
 
+/* Vaporwave palette for the what's-running model lines — darker variants so
+   they hold contrast on a light background. */
+:root {
+  --cfg-stt: #d6369f;
+  --cfg-llm: #8a2be2;
+  --cfg-analyst: #2a9d81;
+  --cfg-tts: #0087a8;
+  --cfg-embed: #9c8f00;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --cfg-stt: #ff71ce;
+    --cfg-llm: #b967ff;
+    --cfg-analyst: #93e9be;
+    --cfg-tts: #01cdfe;
+    --cfg-embed: #fffb96;
+  }
+}
+
+.cfg-stt { color: var(--cfg-stt); }
+.cfg-llm { color: var(--cfg-llm); }
+.cfg-analyst { color: var(--cfg-analyst); }
+.cfg-tts { color: var(--cfg-tts); }
+.cfg-embed { color: var(--cfg-embed); }
+
 #rag-panel {
   margin-top: 1rem;
 }
@@ -202,6 +228,21 @@ button {
   font-size: 0.72rem;
   opacity: 0.7;
   overflow-wrap: anywhere;
+}
+
+/* Lookup in flight: pulse so the panel reads as working, not stalled. */
+.rag-pending .rag-route {
+  opacity: 1;
+  animation: rag-pulse 1.4s ease-in-out infinite;
+}
+
+@keyframes rag-pulse {
+  0%, 100% { opacity: 0.45; }
+  50% { opacity: 1; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .rag-pending .rag-route { animation: none; }
 }
 
 .rag-timing {
