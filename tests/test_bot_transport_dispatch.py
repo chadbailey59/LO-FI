@@ -5,6 +5,7 @@ session on disconnect."""
 import asyncio
 
 import bot_browser
+import moq_transport
 
 
 class SmallWebRTCRunnerArguments:  # same class NAME the runner uses
@@ -28,7 +29,7 @@ def test_transport_kind_from_runner_args():
 def test_moq_transport_omitted_when_moq_ffi_missing(monkeypatch):
     # Native Windows: moq-ffi has no wheel, so MOQParams import fails —
     # the bot must still start with websocket (+ webrtc when installed).
-    monkeypatch.setattr(bot_browser, "MOQParams", None)
+    monkeypatch.setattr(moq_transport, "MOQParams", None)
     params = bot_browser.build_transport_params()
     assert "moq" not in params
     assert "websocket" in params

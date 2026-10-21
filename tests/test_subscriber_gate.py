@@ -1,7 +1,7 @@
 import asyncio
 from types import SimpleNamespace
 
-from bot_browser import wait_for_audio_subscriber
+from moq_transport import wait_for_audio_subscriber
 
 
 def make_transport(audio_out="open"):
