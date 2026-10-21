@@ -20,6 +20,7 @@ interface LofiConfig {
   ollama_started_by_lofi: boolean;
   rag: string;
   architecture?: string;
+  mode?: string;
 }
 
 const OWNERSHIP = {
@@ -160,12 +161,21 @@ export function attachConfigPanel(client: PipecatClient, panel: HTMLElement): vo
   });
 }
 
-// Inert until Task 8 rewires it onto the session's online/offline mode.
-export function attachHostedBanner(client: PipecatClient, banner: HTMLElement): void {
+// lofi-config names the session's resolved mode (Task 7) — the banner
+// reflects what the server confirmed, not what the client requested.
+export function attachOnlineBanner(client: PipecatClient, banner: HTMLElement): void {
   client.on(RTVIEvent.ServerMessage, (data: unknown) => {
     const message = data as Partial<LofiConfig> | null;
     if (message?.type !== CONFIG_MESSAGE_TYPE) return;
-    banner.hidden = true;
+    const online = message.mode === "online";
+    banner.hidden = !online;
+    if (!online) return;
+    banner.replaceChildren("⚠️ ONLINE MODE — ");
+    const detail = document.createElement("span");
+    detail.className = "online-detail";
+    detail.textContent =
+      "conversation and retrieved public documents go to Deepgram, OpenAI, and Cartesia; the private records db is not mounted.";
+    banner.append(detail);
   });
 }
 

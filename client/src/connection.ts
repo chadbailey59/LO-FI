@@ -6,6 +6,7 @@ import { WebSocketTransport } from "@pipecat-ai/websocket-transport";
 const RELAY_URL_COMES_FROM_START_RESPONSE = "";
 
 export type TransportName = "moq" | "webrtc" | "websocket";
+export type SessionMode = "offline" | "online";
 
 const TRANSPORT_NAMES: TransportName[] = ["moq", "webrtc", "websocket"];
 
@@ -39,11 +40,25 @@ export function createClient(
   });
 }
 
-export async function startBot(transportName: TransportName): Promise<unknown> {
+// Websocket sessions carry mode as `?mode=` on the connect URL itself (the
+// bot reads it off the live `/ws-client` query params — there's no /start
+// round trip to hand it a body); WebRTC carries it as `requestData.mode` in
+// the /api/offer POST (query params on /api/offer never reach the bot).
+function withMode(url: string, mode: SessionMode): string {
+  const separator = url.includes("?") ? "&" : "?";
+  return `${url}${separator}mode=${mode}`;
+}
+
+export async function startBot(transportName: TransportName, mode: SessionMode): Promise<unknown> {
   // WebRTC sessions start when the offer hits /api/offer — no /start round
   // trip; hand the transport its offer endpoint directly.
   if (transportName === "webrtc") {
-    return { webrtcUrl: new URL("/api/offer", window.location.origin).toString() };
+    return {
+      webrtcRequestParams: {
+        endpoint: new URL("/api/offer", window.location.origin).toString(),
+        requestData: { mode },
+      },
+    };
   }
   const response = await fetch("/start", {
     method: "POST",
@@ -57,7 +72,7 @@ export async function startBot(transportName: TransportName): Promise<unknown> {
   // WebSocketTransport rejects unknown keys (the /start response carries
   // sessionId and a null token) — hand it exactly what it validates.
   if (transportName === "websocket") {
-    const params: Record<string, string> = { wsUrl: data.wsUrl ?? "" };
+    const params: Record<string, string> = { wsUrl: withMode(data.wsUrl ?? "", mode) };
     if (data.token) params.token = data.token;
     return params;
   }

@@ -1,17 +1,18 @@
 import "./style.css";
 import type { TransportState } from "@pipecat-ai/client-js";
-import { createClient, pickTransport, startBot } from "./connection";
+import { createClient, pickTransport, startBot, type SessionMode } from "./connection";
 import {
   attachConfigPanel,
-  attachHostedBanner,
   attachModeToggle,
   attachMoneyRain,
+  attachOnlineBanner,
   attachRagPanel,
   attachStopwatch,
 } from "./panels";
 import { attachTranscript } from "./transcript";
 
 const connectButton = document.querySelector<HTMLButtonElement>("#connect")!;
+const modeSelect = document.querySelector<HTMLSelectElement>("#mode-select")!;
 const muteButton = document.querySelector<HTMLButtonElement>("#mute")!;
 const webtransportBanner = document.querySelector<HTMLDivElement>("#webtransport-banner")!;
 const connectionState = document.querySelector<HTMLSpanElement>("#connection-state")!;
@@ -36,7 +37,23 @@ function render(state: TransportState): void {
   muteButton.disabled = idle;
   textInput.disabled = idle;
   sendButton.disabled = idle;
+  modeSelect.disabled = !idle;
 }
+
+function sessionMode(): SessionMode {
+  return modeSelect.value === "online" ? "online" : "offline";
+}
+
+// Default offline; a valid ?mode= in the URL pre-selects the toggle so a
+// shared link (or the moq→webrtc→websocket fallback reload below) survives.
+const requestedMode = new URLSearchParams(window.location.search).get("mode");
+if (requestedMode === "online") modeSelect.value = "online";
+
+modeSelect.addEventListener("change", () => {
+  const url = new URL(window.location.href);
+  url.searchParams.set("mode", sessionMode());
+  window.history.replaceState(null, "", url);
+});
 
 const transportName = pickTransport();
 document.querySelector<HTMLSpanElement>("#transport-name")!.textContent = transportName;
@@ -74,14 +91,14 @@ attachConfigPanel(client, configLines);
 attachRagPanel(client, ragTurns);
 attachMoneyRain(client, document.querySelector<HTMLElement>("#rag-panel")!);
 attachModeToggle(client, document.querySelector<HTMLButtonElement>("#mode-toggle")!);
-attachHostedBanner(client, document.querySelector<HTMLElement>("#hosted-banner")!);
+attachOnlineBanner(client, document.querySelector<HTMLElement>("#online-banner")!);
 attachStopwatch(client, document.querySelector<HTMLElement>("#rag-stopwatch")!);
 
 connectButton.addEventListener("click", async () => {
   connectButton.disabled = true;
   try {
     if (IDLE_STATES.includes(client.state)) {
-      await client.connect(await startBot(transportName));
+      await client.connect(await startBot(transportName, sessionMode()));
     } else {
       await client.disconnect();
     }
