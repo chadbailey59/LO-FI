@@ -57,6 +57,7 @@ from tunables import (
     DEFAULT_ONLINE_TTS_VOICE,
     DEFAULT_ARCHITECTURE,
     DEFAULT_GREETING,
+    ONLINE_GREETING,
 )
 
 REPO_ROOT = Path(__file__).resolve().parent
@@ -598,6 +599,11 @@ def output_device_index() -> int | None:
 def greeting() -> str:
     """Opening line the bot speaks on startup (LOFI_GREETING)."""
     return _get("LOFI_GREETING", DEFAULT_GREETING)
+
+
+def online_greeting() -> str:
+    """Opening line an online session speaks (LOFI_ONLINE_GREETING)."""
+    return _get("LOFI_ONLINE_GREETING", ONLINE_GREETING)
 
 
 def greeting_delay_secs() -> float:

@@ -279,7 +279,14 @@ def _transport_kind(runner_args) -> str:
     return "moq"
 
 
-def _register_moq_handlers(transport, worker, client_ready, mic_subscribed) -> None:
+def _greeting(mode: str) -> str:
+    """Opening line for the session's mode."""
+    return config.online_greeting() if mode == ONLINE_MODE else config.greeting()
+
+
+def _register_moq_handlers(
+    transport, worker, client_ready, mic_subscribed, mode: str = OFFLINE_MODE
+) -> None:
     # NOTE: MoQ's handlers differ from SmallWebRTC's — they receive only the transport
     # (no client argument).
     @transport.event_handler("on_track_subscribed")
@@ -296,7 +303,7 @@ def _register_moq_handlers(transport, worker, client_ready, mic_subscribed) -> N
             )
         await asyncio.sleep(GREETING_SETTLE_SECS)
         logger.info("greeting")
-        await worker.queue_frames([TTSSpeakFrame(config.greeting())])
+        await worker.queue_frames([TTSSpeakFrame(_greeting(mode))])
 
     # A browser tab closing surfaces as the peer's broadcast going away
     # (on_client_disconnected, new in Pipecat 1.7); the whole MoQ session ending
@@ -316,14 +323,14 @@ def _register_moq_handlers(transport, worker, client_ready, mic_subscribed) -> N
         logger.error(f"MoQ error: {message}")
 
 
-def _register_webrtc_handlers(transport, worker) -> None:
+def _register_webrtc_handlers(transport, worker, mode: str = OFFLINE_MODE) -> None:
     # SmallWebRTC and FastAPIWebsocket handlers receive (transport, client).
     # Audio flows as soon as the connection is up — no subscriber gate needed.
     @transport.event_handler("on_client_connected")
     async def on_client_connected(_transport, _client):
         await asyncio.sleep(GREETING_SETTLE_SECS)
         logger.info("WebRTC client connected — greeting")
-        await worker.queue_frames([TTSSpeakFrame(config.greeting())])
+        await worker.queue_frames([TTSSpeakFrame(_greeting(mode))])
 
     @transport.event_handler("on_client_disconnected")
     async def on_client_disconnected(_transport, _client):
@@ -348,9 +355,9 @@ async def run_bot(
         await rtvi.send_server_message(_lofi_config_message(mode))
 
     if _transport_kind(runner_args) in ("webrtc", "websocket"):
-        _register_webrtc_handlers(transport, worker)
+        _register_webrtc_handlers(transport, worker, mode)
     else:
-        _register_moq_handlers(transport, worker, client_ready, mic_subscribed)
+        _register_moq_handlers(transport, worker, client_ready, mic_subscribed, mode)
 
     # MOQInputTransport auto-connects to the relay when the pipeline starts, so we don't
     # dial transport.connect() here; we disconnect explicitly on shutdown.

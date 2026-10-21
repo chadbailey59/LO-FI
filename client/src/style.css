@@ -93,13 +93,13 @@ button {
   grid-template-areas:
     "transcript panels"
     "composer panels";
-  grid-template-columns: minmax(0, 1fr) minmax(18rem, 24rem);
+  grid-template-columns: minmax(0, 1fr) minmax(21.6rem, 28.8rem);
   grid-template-rows: 1fr auto;
   gap: 0.75rem 1.5rem;
   margin-top: 1rem;
 }
 
-@media (max-width: 54rem) {
+@media (max-width: 57.6rem) {
   #app {
     grid-template-areas:
       "transcript"

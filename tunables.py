@@ -89,6 +89,13 @@ DEFAULT_GREETING = (
     "What's on your mind today?"
 )
 
+# First thing the bot says in an online session (cloud cascade, public
+# documents only).
+ONLINE_GREETING = (
+    "Hi. I'm your online financial thinking partner. Ask me about the tax code "
+    "from the public documents, or practice a language with me."
+)
+
 # Queued on the TTS service while a records lookup starts (cascade).
 FILLER_PHRASE = "Let me check your records."
 

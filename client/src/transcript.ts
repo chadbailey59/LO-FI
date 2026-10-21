@@ -77,9 +77,15 @@ export function attachTranscript(client: PipecatClient, pane: HTMLElement): Tran
   });
 
   client.on(RTVIEvent.BotOutput, (data: BotOutputData) => {
-    // Utterance arrives twice under different segment_ids; render pre-synthesis half
-    // so text leads audio, drop the post-synthesis duplicate.
-    if (data.spoken === true) return;
+    // Keep only the message that opens a segment: the pre-synthesis LLM text, in
+    // its own digit form. Drops the post-synthesis duplicate ("completed") and
+    // the word-level progress messages ("in-progress"), which both carry
+    // SpokenTextFilter's words-form numbers.
+    if (data.spoken_status !== undefined) {
+      if (data.spoken_status !== "new") return;
+    } else if (data.spoken === true) {
+      return;
+    }
     keepScrolled(() => {
       botText ??= addTurn("bot");
       const key =
