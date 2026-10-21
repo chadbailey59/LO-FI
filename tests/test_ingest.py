@@ -413,3 +413,138 @@ def test_parse_amount_cents_raises_value_error_on_garbage():
 
     with pytest.raises(ValueError):
         parse_amount_cents("a thousand dollars")
+
+
+# ---- Task 3: dual indexes (private offline db + public online db) ----
+
+
+def chunk_texts(db_path: Path) -> list[str]:
+    conn = store.connect(db_path)
+    try:
+        return [r[0] for r in conn.execute("select text from chunks").fetchall()]
+    finally:
+        conn.close()
+
+
+def make_split_data_dirs(tmp_path: Path) -> tuple[Path, Path]:
+    """data/private (one secret note) + data/public (two public notes)."""
+    private = tmp_path / "data" / "private"
+    public = tmp_path / "data" / "public"
+    private.mkdir(parents=True)
+    public.mkdir(parents=True)
+    (private / "passphrase.txt").write_text("The tax vault passphrase is velvet mango.")
+    (public / "pub-17.txt").write_text("Publication 17 covers the standard deduction.")
+    (public / "pub-334.txt").write_text("Publication 334 covers business expenses.")
+    return private, public
+
+
+def test_index_params_build_separate_dbs(tmp_path, monkeypatch):
+    import ingest as ingest_mod
+
+    private, public = make_split_data_dirs(tmp_path)
+    private_db = tmp_path / "lofi.db"
+    public_db = tmp_path / "lofi-public.db"
+    monkeypatch.setattr(ingest_mod, "_build_embedder", lambda name: FakeEmbedder())
+
+    ingest_mod._cli_index(data_dir=tmp_path / "data", db=private_db)
+    ingest_mod._cli_index(data_dir=public, db=public_db, embedder="openai")
+
+    private_texts = " ".join(chunk_texts(private_db))
+    public_texts = " ".join(chunk_texts(public_db))
+    assert "velvet mango" in private_texts
+    assert "Publication 17" in private_texts
+    assert "velvet mango" not in public_texts
+    assert "Publication 17" in public_texts
+    assert "Publication 334" in public_texts
+    assert len(chunk_texts(public_db)) == 2
+
+
+def test_openai_embedder_payload():
+    import json
+
+    from ingest import OpenAIEmbedder
+
+    seen = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen["url"] = str(request.url)
+        seen["auth"] = request.headers.get("authorization")
+        seen["body"] = json.loads(request.content)
+        return httpx.Response(
+            200, json={"data": [{"embedding": [0.1, 0.2]}, {"embedding": [0.3, 0.4]}]}
+        )
+
+    client = httpx.Client(transport=httpx.MockTransport(handler))
+    embedder = OpenAIEmbedder("text-embedding-3-small", "test-not-a-real-key", client=client)
+    vectors = embedder.embed(["first text", "second text"])
+
+    assert seen["url"] == "https://api.openai.com/v1/embeddings"
+    assert seen["body"] == {
+        "model": "text-embedding-3-small",
+        "input": ["first text", "second text"],
+    }
+    assert seen["auth"] == "Bearer test-not-a-real-key"
+    assert embedder.model == "text-embedding-3-small"
+    assert vectors.dtype == np.float32
+    assert vectors.shape == (2, 2)
+
+
+def test_public_build_failure_leaves_private_db(tmp_path, monkeypatch):
+    import ingest as ingest_mod
+
+    private, public = make_split_data_dirs(tmp_path)
+    private_db = tmp_path / "lofi.db"
+    public_db = tmp_path / "lofi-public.db"
+    monkeypatch.setattr(ingest_mod, "_build_embedder", lambda name: FakeEmbedder())
+    ingest_mod._cli_index(data_dir=tmp_path / "data", db=private_db)
+    before = chunk_texts(private_db)
+
+    class RevokedKeyEmbedder:
+        model = "text-embedding-3-small"
+
+        def __init__(self):
+            self.calls = 0
+
+        def embed(self, texts):
+            self.calls += 1
+            if self.calls > 1:
+                raise RuntimeError("401 incorrect api key provided")
+            return FakeEmbedder().embed(texts)
+
+    monkeypatch.setattr(ingest_mod, "_build_embedder", lambda name: RevokedKeyEmbedder())
+    with pytest.raises(SystemExit) as excinfo:
+        ingest_mod._cli_index(data_dir=public, db=public_db, embedder="openai")
+
+    assert excinfo.value.code not in (0, None)
+    assert chunk_texts(private_db) == before
+    assert "velvet mango" in " ".join(before)
+
+
+def test_openai_build_refuses_the_private_db(tmp_path, monkeypatch):
+    import config
+    import ingest as ingest_mod
+
+    _private, public = make_split_data_dirs(tmp_path)
+    private_db = tmp_path / "lofi.db"
+    monkeypatch.setenv("LOFI_RAG_DB", str(private_db))
+    monkeypatch.setattr(ingest_mod, "_build_embedder", lambda name: FakeEmbedder())
+    assert config.rag_db_path() == str(private_db)
+
+    with pytest.raises(SystemExit) as excinfo:
+        ingest_mod._cli_index(data_dir=public, db=private_db, embedder="openai")
+
+    assert excinfo.value.code not in (0, None)
+    assert not private_db.exists()
+
+
+def test_public_config_paths_default_under_the_index_dir(tmp_path, monkeypatch):
+    import config
+
+    monkeypatch.setenv("LOFI_RAG_INDEX_DIR", str(tmp_path / "idx"))
+    monkeypatch.setenv("LOFI_RAG_DATA_DIR", str(tmp_path / "data"))
+    monkeypatch.delenv("LOFI_PUBLIC_RAG_DB", raising=False)
+    monkeypatch.delenv("LOFI_PUBLIC_RAG_DATA_DIR", raising=False)
+
+    assert config.public_rag_db_path() == str(tmp_path / "idx" / "lofi-public.db")
+    assert config.public_rag_data_dir() == str(tmp_path / "data" / "public")
+    assert config.online_embed_model() == "text-embedding-3-small"

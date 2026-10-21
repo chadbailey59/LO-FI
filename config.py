@@ -51,6 +51,7 @@ from tunables import (
     DEFAULT_LLM_MODEL,
     DEFAULT_RAG_LLM_MODEL,
     DEFAULT_EMBED_MODEL,
+    DEFAULT_ONLINE_EMBED_MODEL,
     DEFAULT_ARCHITECTURE,
     DEFAULT_GREETING,
 )
@@ -393,6 +394,30 @@ def rag_data_dir() -> str:
     return str(_resolve_repo_path(_get("LOFI_RAG_DATA_DIR", DEFAULT_RAG_DATA_DIR)))
 
 
+def online_embed_model() -> str:
+    """OpenAI embedding model for the public index (LOFI_ONLINE_EMBED_MODEL,
+    default ``text-embedding-3-small``).
+
+    Used only by the public (online-mode) index build and by online sessions
+    retrieving from it.
+    """
+    return _get("LOFI_ONLINE_EMBED_MODEL", DEFAULT_ONLINE_EMBED_MODEL)
+
+
+def public_rag_data_dir() -> str:
+    """Documents safe to send to the cloud (LOFI_PUBLIC_RAG_DATA_DIR, default
+    ``$LOFI_RAG_DATA_DIR/public``).
+
+    Offline mode indexes all of ``rag_data_dir()``; the public build indexes
+    only this subtree.
+    """
+    return str(
+        _resolve_repo_path(
+            _get("LOFI_PUBLIC_RAG_DATA_DIR", str(Path(rag_data_dir()) / "public"))
+        )
+    )
+
+
 def rag_index_dir() -> str:
     """Where the built RAG index lives (LOFI_RAG_INDEX_DIR, default
     ``$LOFI_MODEL_DIR/rag-index``): chunks.jsonl + embeddings.npy +
@@ -455,6 +480,16 @@ def rag_db_path() -> str:
     sqlite-vec embeddings, all in one file.
     """
     return _get("LOFI_RAG_DB", str(Path(rag_index_dir()) / "lofi.db"))
+
+
+def public_rag_db_path() -> str:
+    """SQLite file backing the public RAG index (LOFI_PUBLIC_RAG_DB, default
+    ``$LOFI_RAG_INDEX_DIR/lofi-public.db``): chunks from
+    ``public_rag_data_dir()`` embedded through OpenAI.
+
+    The only db online-mode code may open.
+    """
+    return _get("LOFI_PUBLIC_RAG_DB", str(Path(rag_index_dir()) / "lofi-public.db"))
 
 
 def rag_top_k() -> int:

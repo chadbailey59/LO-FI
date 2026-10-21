@@ -46,7 +46,7 @@ context it delegates fine.
 > **Say:** "What's the secret passphrase for the tax vault?"
 >
 > **Expect:** *BLUE MANATEE 436921* — straight out of
-> `data/passphrase-smoke.txt`. The lofi-rag panel prints the backend's
+> `data/private/passphrase-smoke.txt`. The lofi-rag panel prints the backend's
 > `semantic_search` call: tool, args, rows, timing.
 
 Point at the panel: the model didn't know this; retrieval did.

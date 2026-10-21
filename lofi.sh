@@ -9,7 +9,7 @@
 #   ./lofi.sh start [-t moq|headphones]   # bring up Ollama if needed, then the bot (default: moq)
 #   ./lofi.sh stop                        # stop only what lofi started (recorded PIDs)
 #   ./lofi.sh status [-v]                 # machine, ownership, bot, models (configured + downloaded), rag; -v adds full catalogs
-#   ./lofi.sh index-rag                   # build/rebuild the document index
+#   ./lofi.sh index-rag                   # build/rebuild both document indexes
 #   ./lofi.sh consolidate [-n]            # adopt models from default HF/Ollama dirs (symlinks)
 #   ./lofi.sh configure [args]            # delegates to ./configure.sh
 #   ./lofi.sh get-debug-log [n]           # bundle the latest (or nth-latest) session log for debugging
@@ -92,6 +92,22 @@ model_lines() {
 rag_line() {
   uv run python ingest.py stats --bare 2>/dev/null \
     || echo "no index (run ./lofi.sh index-rag)"
+}
+
+public_rag_line() {
+  uv run python ingest.py stats --bare --public 2>/dev/null \
+    || echo "no index (run ./lofi.sh index-rag)"
+}
+
+# Offline build over all of $LOFI_RAG_DATA_DIR, then the public build over
+# data/public through OpenAI when a key is present.
+cmd_index_rag() {
+  uv run python ingest.py index || exit $?
+  if [[ -n "${OPENAI_API_KEY:-}" ]]; then
+    uv run python ingest.py index --embedder openai || exit $?
+  else
+    echo "public index: skipped (no OPENAI_API_KEY in .env) — online mode needs it"
+  fi
 }
 
 cmd_start() {
@@ -266,7 +282,9 @@ cmd_help() {
       echo "                  too big for this machine)" ;;
     index-rag)
       echo "usage: ./lofi.sh index-rag"
-      echo "  builds the document index: \$LOFI_RAG_DATA_DIR (default ./data) → \$LOFI_RAG_INDEX_DIR"
+      echo "  builds the offline index: \$LOFI_RAG_DATA_DIR (default ./data) → \$LOFI_RAG_INDEX_DIR/lofi.db"
+      echo "  then the public index for online mode: ./data/public → lofi-public.db, embedded"
+      echo "  through OpenAI (skipped with a notice when OPENAI_API_KEY is unset)"
       echo "  rebuilds from scratch; run it again after adding/editing/removing documents" ;;
     get-debug-log)
       echo "usage: ./lofi.sh get-debug-log [n]"
@@ -320,6 +338,7 @@ cmd_status() {
 
   model_lines --bare
   echo "rag      $(rag_line)"
+  echo "  public $(public_rag_line)"
 
   echo
   echo "downloaded"
@@ -345,7 +364,7 @@ case "$CMD" in
   start)      cmd_start "$@" ;;
   stop)       cmd_stop ;;
   status)     cmd_status "$@" ;;
-  index-rag)  exec uv run python ingest.py index ;;
+  index-rag)  cmd_index_rag ;;
   consolidate) exec uv run python scripts/consolidate.py "$@" ;;
   configure)  exec ./configure.sh "$@" ;;
   get-debug-log) cmd_get_debug_log "$@" ;;

@@ -11,7 +11,7 @@ import store
 REPO_ROOT = Path(__file__).parent.parent
 FIXTURES = Path(__file__).parent / "fixtures"
 TRANSACTIONS_CSV = FIXTURES / "transactions-small.csv"
-DATA_DIR = REPO_ROOT / "data"
+DATA_DIR = REPO_ROOT / "data" / "private"
 
 
 @pytest.fixture

@@ -66,6 +66,9 @@ DEFAULT_KOKORO_VOICE = "af_heart"
 DEFAULT_LLM_MODEL = "qwen2.5:7b"
 DEFAULT_RAG_LLM_MODEL = "qwen3:8b"
 DEFAULT_EMBED_MODEL = "nomic-embed-text"
+# Online mode embeds the public index through OpenAI; the private index
+# stays on nomic-embed-text above.
+DEFAULT_ONLINE_EMBED_MODEL = "text-embedding-3-small"
 DEFAULT_ARCHITECTURE = "split"
 
 # ===========================================================================

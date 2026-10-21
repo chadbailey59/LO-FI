@@ -8,6 +8,7 @@ deleted, just no longer read.
 import csv
 import hashlib
 import html
+import os
 import re
 from dataclasses import dataclass
 from datetime import date as date_cls
@@ -143,6 +144,30 @@ class OllamaEmbedder:
         )
         response.raise_for_status()
         return np.asarray(response.json()["embeddings"], dtype=np.float32)
+
+
+class OpenAIEmbedder:
+    """Embeds via the OpenAI embeddings API: POST /v1/embeddings.
+
+    Online mode only — the texts it sends leave the machine, so it is pointed
+    at ``config.public_rag_data_dir()`` / ``config.public_rag_db_path()``.
+    """
+
+    def __init__(self, model: str, api_key: str, client: httpx.Client | None = None):
+        self._url = "https://api.openai.com/v1/embeddings"
+        self.model = model
+        self._headers = {"Authorization": f"Bearer {api_key}"}
+        self._client = client or httpx.Client(timeout=120.0)
+
+    def embed(self, texts: list[str]) -> np.ndarray:
+        response = self._client.post(
+            self._url,
+            headers=self._headers,
+            json={"model": self.model, "input": texts},
+        )
+        response.raise_for_status()
+        rows = [item["embedding"] for item in response.json()["data"]]
+        return np.asarray(rows, dtype=np.float32)
 
 
 class FakeEmbedder:
@@ -440,11 +465,38 @@ def ingest(
         conn.close()
 
 
-def _cli_index() -> None:
+def _build_embedder(name: str):
+    """``ollama`` (private index, local) or ``openai`` (public index, cloud)."""
     import config
 
-    data_dir = Path(config.rag_data_dir())
-    db_path = Path(config.rag_db_path())
+    if name == "openai":
+        api_key = os.getenv("OPENAI_API_KEY", "").strip()
+        if not api_key:
+            raise SystemExit(
+                "\n✖ the public index needs OPENAI_API_KEY — put it in .env "
+                "and rerun ./lofi.sh index-rag\n"
+            )
+        return OpenAIEmbedder(config.online_embed_model(), api_key)
+    store.preflight_embed_model(config.embed_model(), config.ollama_api_url())
+    return OllamaEmbedder(config.ollama_api_url(), config.embed_model())
+
+
+def _cli_index(data_dir=None, db=None, embedder: str = "ollama") -> None:
+    import config
+
+    public = embedder == "openai"
+    if data_dir is None:
+        data_dir = config.public_rag_data_dir() if public else config.rag_data_dir()
+    if db is None:
+        db = config.public_rag_db_path() if public else config.rag_db_path()
+    data_dir = Path(data_dir)
+    db_path = Path(db)
+    if public and db_path.resolve() == Path(config.rag_db_path()).resolve():
+        raise SystemExit(
+            f"\n✖ refusing to write cloud embeddings into the private index "
+            f"({db_path}) — pass --db with the public index path\n"
+        )
+
     data_dir.mkdir(parents=True, exist_ok=True)
     if not any(p.is_file() for p in data_dir.rglob("*")):
         print(
@@ -452,18 +504,30 @@ def _cli_index() -> None:
             "and rerun ./lofi.sh index-rag"
         )
         return
-    store.preflight_embed_model(config.embed_model(), config.ollama_api_url())
-    stats = ingest(
-        data_dir,
-        db_path,
-        OllamaEmbedder(config.ollama_api_url(), config.embed_model()),
-        chunk_tokens=config.rag_chunk_tokens(),
-        overlap=config.rag_chunk_overlap(),
-    )
-    old_index_dir = Path(config.rag_index_dir())
+    built = _build_embedder(embedder)
+    try:
+        stats = ingest(
+            data_dir,
+            db_path,
+            built,
+            chunk_tokens=config.rag_chunk_tokens(),
+            overlap=config.rag_chunk_overlap(),
+        )
+    except SystemExit:
+        raise
+    except Exception as exc:
+        label = "public" if public else "offline"
+        raise SystemExit(f"\n✖ {label} index build failed: {exc}\n") from exc
     hint = ""
-    if (old_index_dir / "chunks.jsonl").is_file() or (old_index_dir / "embeddings.npy").is_file():
-        hint = f" (old chunks.jsonl/embeddings.npy/manifest.json under {old_index_dir} are now inert)"
+    if not public:
+        old_index_dir = Path(config.rag_index_dir())
+        if (old_index_dir / "chunks.jsonl").is_file() or (
+            old_index_dir / "embeddings.npy"
+        ).is_file():
+            hint = (
+                f" (old chunks.jsonl/embeddings.npy/manifest.json under "
+                f"{old_index_dir} are now inert)"
+            )
     reason = f" [{stats.reason}]" if stats.reason else ""
     print(
         f"indexed {stats.chunks} chunks from {stats.files} files, {stats.rows} rows "
@@ -471,11 +535,16 @@ def _cli_index() -> None:
     )
 
 
-def _cli_stats(bare: bool) -> None:
+def _cli_stats(bare: bool, public: bool = False) -> None:
     import config
 
-    db_path = Path(config.rag_db_path())
-    print(store.stats_summary(db_path, config.rag_data_dir()))
+    if public:
+        db_path = Path(config.public_rag_db_path())
+        data_dir = config.public_rag_data_dir()
+    else:
+        db_path = Path(config.rag_db_path())
+        data_dir = config.rag_data_dir()
+    print(store.stats_summary(db_path, data_dir))
     if bare or not store.has_index(db_path):
         return
     conn = store.connect(db_path)
@@ -496,16 +565,27 @@ def _main() -> None:
 
     parser = argparse.ArgumentParser(description="offline document + transactions index for lofi")
     subcommands = parser.add_subparsers(dest="command", required=True)
-    subcommands.add_parser("index", help="rebuild the index from LOFI_RAG_DATA_DIR")
+    index_parser = subcommands.add_parser("index", help="rebuild the index from LOFI_RAG_DATA_DIR")
+    index_parser.add_argument("--data-dir", help="documents to index (default: per --embedder)")
+    index_parser.add_argument("--db", help="SQLite index to write (default: per --embedder)")
+    index_parser.add_argument(
+        "--embedder",
+        choices=("ollama", "openai"),
+        default="ollama",
+        help="ollama = private index (local); openai = public index (cloud)",
+    )
     stats_parser = subcommands.add_parser("stats", help="print index summary")
     stats_parser.add_argument(
         "--bare", action="store_true", help="one status line, for ./lofi.sh status"
     )
+    stats_parser.add_argument(
+        "--public", action="store_true", help="report the public (online-mode) index"
+    )
     args = parser.parse_args()
     if args.command == "index":
-        _cli_index()
+        _cli_index(data_dir=args.data_dir, db=args.db, embedder=args.embedder)
     else:
-        _cli_stats(args.bare)
+        _cli_stats(args.bare, args.public)
 
 
 if __name__ == "__main__":
