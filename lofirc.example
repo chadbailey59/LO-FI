@@ -9,7 +9,7 @@ LOFI_MODEL_DIR=./models
 #LOFI_ARCHITECTURE=split                     # split (default: front + analyst backend) | cascade (one model, stable fallback)
 
 #LOFI_LLM_MODEL=qwen2.5:7b
-#LOFI_RAG_LLM_MODEL=qwen3:8b                 # records analyst backend; needs real API tool calls (nemotron-3-nano narrates JSON text — broken as split backend)
+#LOFI_RAG_LLM_MODEL=qwen3:8b                 # records analyst backend; needs real API tool calls
 #LOFI_WAIT_LESSON_LANGUAGE=Spanish           # split: while the analyst works, the front teaches one related phrase (default off)
 #LOFI_RAG_FAST_LLM_MODEL=                    # analyst fast-mode model; defaults to LOFI_RAG_LLM_MODEL
 

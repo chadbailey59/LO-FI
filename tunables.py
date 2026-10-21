@@ -18,8 +18,10 @@ What deliberately lives elsewhere:
     level — `config.py`
 
 Env vars: the model defaults in section 1 are what `config.py`'s getters fall
-back to, so `LOFI_*` env vars still override them at runtime. Prompts have no
-env override — editing this file IS the mechanism.
+back to, so `LOFI_*` env vars still override them at runtime. Those overrides
+live in `.lofirc` at the repo root (`lofirc.example` is the template); `.env`
+holds only the three online-session API keys. Prompts have no env override —
+editing this file IS the mechanism.
 
 KV-cache rule: `BASE_PROMPT` and `ANALYST_SYSTEM_PROMPT` stay free of per-call
 data so Ollama's prefix cache survives between turns. Grounding (today's date,

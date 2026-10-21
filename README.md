@@ -16,6 +16,11 @@ The v1 personality is a **private financial thinking partner**: something you ca
 talk through money decisions with, out loud, knowing nothing you say leaves the
 computer.
 
+Every session picks a side before you Connect: **🔌 offline** (the default —
+the local split stack over all your data) or **☁️ online** (a Deepgram /
+OpenAI / Cartesia cascade over the public documents only). See
+[Online sessions](#online-sessions-the-other-half-of-the-toggle).
+
 †Audio is hard and there are a few ways to handle it in this scenario. See "how do you
 solve a problem like echo cancellation?"
 
@@ -424,10 +429,102 @@ this project, and nowhere to put one:
 - **Whisper-MLX and Kokoro** download anonymously from Hugging Face (none are
   gated); **Silero VAD** ships bundled with Pipecat.
 
-`.lofirc`/`.env` are **config only** — model names, a voice, device indices,
-cache paths. They are gitignored, but nothing secret ever belongs in `.lofirc`.
-The single network event in the bot's entire lifecycle is the one-time,
+`.lofirc` is **config only** — model names, a voice, device indices, cache
+paths. It is gitignored, but nothing secret ever belongs in it. The single
+network event in an offline session's entire lifecycle is the one-time,
 anonymous model download in step 2.
+
+The one exception is the **online session mode**, which is opt-in per session
+and needs three keys. Those live in `.env` — three names, nothing else — and
+an offline session never reads them. See
+[Online sessions](#online-sessions-the-other-half-of-the-toggle) and
+[Configuration files](#configuration-files-lofirc-and-env).
+
+---
+
+## Online sessions (the other half of the toggle)
+
+Offline is the point of this repo. Online mode exists for the two things a
+local 7B on a laptop can't do well: answer a tax question in about two
+seconds, and hold a **two-way** conversation in another language. You pick per
+session, in the browser, before you Connect — the `🔌 offline` / `☁️ online`
+control sits next to the Connect button and is disabled while connected. The
+choice round-trips through the URL (`?mode=online`), so a reload keeps it.
+
+| | 🔌 offline *(default)* | ☁️ online |
+|---|---|---|
+| Speech-to-text | Whisper-MLX / faster-whisper, local | Deepgram `nova-3` (cloud), `language=multi` |
+| Language model | `qwen2.5:7b` front + `qwen3:8b` analyst, Ollama | `gpt-4o-mini` (OpenAI cloud) |
+| Text-to-speech | Kokoro, local | Cartesia (cloud) |
+| Embeddings | `nomic-embed-text`, Ollama | `text-embedding-3-small` (OpenAI cloud) |
+| Retrieves from | **everything** — `models/rag-index/lofi.db` | **public documents only** — `models/rag-index/lofi-public.db` |
+| Tools | `lookup`, `filter_rows`, `aggregate`, `semantic_search` | `semantic_search` only |
+| Keys needed | none | all three in `.env` |
+
+**The privacy boundary is the filesystem, not a prompt.** `data/` is split in
+two — `data/private/` (your transactions, your notes) and `data/public/` (the
+IRS publications shipped with the repo) — and `./lofi.sh index-rag` builds one
+database from each. Online code never constructs the private path: it is
+wired to `config.public_rag_db_path()` and nothing else, so a private answer
+isn't refused by instruction, it is unreachable. Ask an online session for
+your passphrase and it says the records aren't part of this session and an
+offline one can answer.
+
+What *does* leave the machine in an online session: everything you say, and
+every chunk of public document the retrieval pulls in. The page says so, in a
+red `⚠️ ONLINE MODE` banner you can read from the back row, and the What's
+Running panel lists each cloud service by name.
+
+### Setting it up
+
+```bash
+cp env.example .env
+```
+
+Fill in `OPENAI_API_KEY`, `DEEPGRAM_API_KEY`, `CARTESIA_API_KEY`, then build
+the public index (the offline build runs first, then the public one over
+`data/public/` through OpenAI embeddings):
+
+```bash
+./lofi.sh index-rag
+```
+
+With no `OPENAI_API_KEY` the public build is skipped with a one-line note and
+the offline index still builds. Connecting online with a key missing fails at
+connect and names **every** key that's absent. With no public index, the
+online session still converses — it just has no documents to cite, and the
+What's Running panel says so.
+
+### Online-only: a machine with no models
+
+```bash
+./lofi.sh start --online-only
+```
+
+Serves the browser bot with `LOFI_ONLINE_ONLY=1`: no Ollama start, no model
+wait, no local STT/TTS preflight. Useful on a machine that never downloaded
+the ~12 GB of weights, or when Ollama is deliberately stopped. A bare connect
+in that process defaults to online. It refuses `-t headphones` — the
+local-audio bot has no online stack.
+
+### Two-way language practice
+
+```bash
+LOFI_WAIT_LESSON_LANGUAGE=Spanish ./lofi.sh start
+```
+
+Offline, that knob teaches one phrase while the analyst thinks (teach-only —
+local STT is English-configured and spoken Spanish comes back as gibberish).
+**Online it becomes two-way**: Deepgram's `nova-3` with `language=multi`
+code-switches and Cartesia's voice speaks the language, so the same session
+answers you in Spanish when you speak Spanish.
+
+### What it costs
+
+`gpt-4o-mini`, `nova-3` and one Cartesia voice are the cheap tier of each
+service, and the public index is two PDFs — a workshop's worth of demoing is
+cents, not dollars. Keys are read from `.env` only: they are never logged,
+never sent to the browser, and never appear in the What's Running panel.
 
 ---
 
@@ -441,6 +538,7 @@ anonymous model download in step 2.
 | Turn-taking | Silero VAD | Barge-in / interruptions, fully local (bundled with Pipecat) |
 | Transport | `SmallWebRTCTransport` (browser) *(default)* | free echo cancellation via `getUserMedia`; auto-falls back to `?transport=websocket` (pure TCP, any browser, any boundary). `?transport=moq` opts into media-over-QUIC |
 | Alternative transport | `LocalAudioTransport` | PyAudio mic + speaker I/O (requires headphones) |
+| Online session *(opt-in)* | `DeepgramSTTService` + `OpenAILLMService` + `CartesiaTTSService` | Picked per session in the browser; retrieves from the public index only — see [Online sessions](#online-sessions-the-other-half-of-the-toggle) |
 
 ---
 
@@ -454,6 +552,15 @@ then:
 ollama pull nomic-embed-text   # one-time, while online
 ./lofi.sh index-rag
 ```
+
+`data/` has two subdirectories and the split is the privacy boundary:
+`data/private/` (your transactions and notes) and `data/public/` (documents
+you don't mind sending to a cloud service — the repo ships IRS Pub 17 and
+Pub 334 there). An offline session indexes **all** of `data/` into
+`lofi.db`; `index-rag` then builds a second database, `lofi-public.db`, from
+`data/public/` alone, and that is the only one an online session can open.
+Put a file in the wrong directory and you've moved the boundary — that is the
+whole mechanism.
 
 ### Two architectures, one env var
 
@@ -492,6 +599,30 @@ observer rows are historical — the split-v2 eval stage is pending):
 
 *Latencies measured on a loaded machine — treat as a ranking, not a benchmark.
 
+#### Will it fit? The RAM budget
+
+Ollama's default Q4 quantization costs roughly **params / 2 GB of weights**,
+plus **1–3 GB of KV cache and runtime overhead** that grows with context
+length. Measured resident sizes on an M4 Pro:
+
+| Model | Weights (Q4) | Measured resident |
+|---|---|---|
+| 7B (`qwen2.5:7b`) | ~3.5 GB | **~4.5 GB** |
+| 8B (`qwen3:8b`) | ~4.0 GB | ~5 GB |
+| 14B (`qwen2.5:14b`) | ~7 GB | **~9 GB** |
+| 27B (`qwen3.8:27b`) | ~14 GB | **17.7 GB** |
+
+Add **~2 GB for STT + TTS** (Whisper-MLX large-v3-turbo plus Kokoro), and
+remember `split` keeps **two** LLMs resident at once — front *and* analyst. So
+the default split pair is ~4.5 + 5 + 2 ≈ **11.5 GB**.
+
+Rule of thumb: **leave a third of your unified RAM free.** macOS and the
+browser want it, and the moment the GPU spills to swap, latency stops being a
+ranking and becomes a wait. On 16 GB that means budgeting ~11 GB — the
+defaults fit, a 14B analyst does not. On 8 GB, run `cascade` with a small
+model, or skip the weights entirely with
+[`./lofi.sh start --online-only`](#online-only-a-machine-with-no-models).
+
 Reasoning models (deepseek-r1, qwen3 with thinking) are not supported as the
 **pipeline** model — nothing strips thinking tokens before the voice. The
 split backend is exactly where a reasoning model belongs: its thinking
@@ -513,11 +644,16 @@ builds a parameterized query, capped at five rows or chunks per result:
 | `aggregate` | "how much did I spend on groceries in 2025" — count/sum/avg/min/max, transfers excluded unless asked |
 | `semantic_search` | "what's in my tax notes?" — embedding KNN fused with full-text, over everything |
 
-### One SQLite file
+### One SQLite file (two, once online mode is set up)
 
 `./lofi.sh index-rag` builds a single database at `LOFI_RAG_DB` (default
 `./models/rag-index/lofi.db`) holding typed transaction rows, an FTS5
-full-text index, and a `sqlite-vec` vector table side by side. Ingest is
+full-text index, and a `sqlite-vec` vector table side by side. With
+`OPENAI_API_KEY` set it then builds the same shape a second time at
+`LOFI_PUBLIC_RAG_DB` (default `./models/rag-index/lofi-public.db`) over
+`data/public/` with OpenAI embeddings — the online session's whole world. The
+two builds are independent: a failing public build exits nonzero and leaves
+`lofi.db` untouched. Ingest is
 incremental: each file is hashed, unchanged files are skipped, edited files are
 re-embedded alone, and deleted files are purged. Change the embedding model and
 it rebuilds from scratch and says why.
@@ -543,7 +679,7 @@ than deleted.
 Plant a fact the model cannot possibly know, and ask for it:
 
 ```bash
-echo "The secret passphrase for the tax vault is BLUE PELICAN 47." > data/canary.txt
+echo "The secret passphrase for the tax vault is BLUE PELICAN 47." > data/private/canary.txt
 ./lofi.sh index-rag
 ./lofi.sh start -t headphones
 ```
@@ -552,7 +688,7 @@ Ask *"what's the passphrase for the tax vault?"* — a correct answer can only
 have come from retrieval, and in the browser UI the retrieved-context panel
 prints one line per backend tool call (which tool, its arguments, how many rows
 came back, how long it took) plus the composed answer. The same canary also
-demonstrates the index lifecycle: delete `data/canary.txt` and ask again
+demonstrates the index lifecycle: delete `data/private/canary.txt` and ask again
 without re-indexing — the bot still answers, because it reads the built index,
 never `data/` itself. Re-run `./lofi.sh index-rag` and ask a third time — now
 the passphrase is gone. Moral: the index only changes when you rebuild it.
@@ -651,9 +787,70 @@ The workshop question: *what can this computer actually run?* The process:
 
 ## Configuration
 
-Every knob is an environment variable (read from `.lofirc` if present; hosted
-API keys live in `.env`). All are optional — the shown value is the default.
-See [`lofirc.example`](lofirc.example) for the copy-paste template.
+Every knob is an environment variable (read from `.lofirc` if present;
+online-session API keys live in `.env`). All are optional — the shown value is
+the default. See [`lofirc.example`](lofirc.example) for the copy-paste
+template.
+
+### Configuration files: `.lofirc` and `.env`
+
+Two files, one job each, both gitignored:
+
+| File | Holds | Template |
+|---|---|---|
+| `.lofirc` | every `LOFI_*` setting — model tags, voices, engines, paths, VAD, ports | [`lofirc.example`](lofirc.example) |
+| `.env` | exactly three names: `OPENAI_API_KEY`, `DEEPGRAM_API_KEY`, `CARTESIA_API_KEY` | [`env.example`](env.example) |
+
+```bash
+cp lofirc.example .lofirc     # settings — optional, the bot runs without it
+cp env.example .env           # keys — only if you want online sessions
+```
+
+`LOFI_ENV_FILE` repoints the settings file (`config.py`, `lofi.sh` and
+`configure.sh` all honor it); the keys file is always `.env` at the repo root.
+
+#### Where a setting comes from
+
+For any `LOFI_*` knob, first hit wins:
+
+1. **The shell environment** — `LOFI_ARCHITECTURE=cascade ./lofi.sh start`.
+   Beats both files, always.
+2. **`.lofirc`** — your persistent settings. Loaded as defaults, so it never
+   overrides the line above.
+3. **`.env`** — loaded next, same no-override rule, so `.lofirc` wins for a
+   name in both. Put nothing but the three keys here.
+4. **`tunables.py`** — the default baked into the code, and the end of the
+   ladder for models and voices.
+
+**Prompts are not on this ladder.** They have no env var at all: every system
+prompt, tool description and canned line lives in
+[`tunables.py`](tunables.py), and editing that file IS the mechanism. Landmine
+comments mark measured, byte-sensitive text.
+
+#### Migrating from the old single `.env`
+
+Before the split, one `.env` held everything. Nothing breaks if you leave it
+that way — `.env` is still loaded, so stray settings still apply — but on
+startup `config.py` and `./lofi.sh` print one line naming each `LOFI_*`
+setting it found there and asking you to move it. The migration:
+
+```bash
+cp .env .lofirc
+```
+
+```bash
+cat > .env <<'EOF'
+OPENAI_API_KEY=
+DEEPGRAM_API_KEY=
+CARTESIA_API_KEY=
+EOF
+```
+
+Then delete the three key lines from `.lofirc` if you'd pasted them there.
+A second, older warning names unprefixed settings (`STT_ENGINE`,
+`LLM_MODEL`, …) left from before everything took the `LOFI_` prefix — the
+only unprefixed names still read are the four external ones in the table
+below.
 
 **`LOFI_` means it's ours.** Anything read by this repo carries the prefix, so
 you can tell at a glance what's safe to change and what belongs to someone else.
@@ -682,7 +879,7 @@ measured, byte-sensitive text — read them before editing.
 | `LOFI_ARCHITECTURE` | `split` | `split` (default) \| `cascade` — see [Two architectures](#two-architectures-one-env-var). |
 | `LOFI_RAG_LLM_MODEL` | `qwen3:8b` | Ollama tag for the records analyst backend (`split`). Needs a model that emits real API tool calls — `nemotron-3-nano:4b` narrates them as JSON text and fails as the split backend. |
 | `LOFI_RAG_FAST_LLM_MODEL` | `$LOFI_RAG_LLM_MODEL` | Analyst model for the UI's ⚡ fast mode (thinking always off there). A *distinct* fast model needs `OLLAMA_MAX_LOADED_MODELS=4` so nothing gets evicted. |
-| `LOFI_WAIT_LESSON_LANGUAGE` | *(empty = off)* | `split` only. When set, the front teaches one phrase in that language while the analyst works. |
+| `LOFI_WAIT_LESSON_LANGUAGE` | *(empty = off)* | Offline (`split` only): the front teaches one phrase in that language while the analyst works. Online: two-way practice — the session answers in that language whenever you speak it. |
 | `LOFI_OLLAMA_BASE_URL` | `http://localhost:11434/v1` | OpenAI-compatible Ollama endpoint (note the trailing `/v1`). The RAG embedder talks to the same host minus `/v1`. |
 | `LOFI_EMBED_MODEL` | `nomic-embed-text` | Ollama model tag for RAG embeddings. Pull it with `ollama pull nomic-embed-text`. |
 | `LOFI_RAG_DATA_DIR` | `./data` | The documents to index (`.txt`/`.md`/`.pdf`) — put files here, then `./lofi.sh index-rag`. Absolute, `~`, or relative-to-repo. |
@@ -691,6 +888,13 @@ measured, byte-sensitive text — read them before editing.
 | `LOFI_RAG_TOP_K` | `4` | Legacy knob from the always-on injection era; nothing reads it now — the analyst's tools cap themselves at five results. |
 | `LOFI_RAG_CHUNK_TOKENS` | `500` | Chunk budget in whitespace-split words. |
 | `LOFI_RAG_CHUNK_OVERLAP` | `50` | Words repeated between consecutive chunks. |
+| `LOFI_PUBLIC_RAG_DATA_DIR` | `./data/public` | The only documents an online session can retrieve. Also indexed into the offline db. |
+| `LOFI_PUBLIC_RAG_DB` | `$LOFI_RAG_INDEX_DIR/lofi-public.db` | The public index. The only db online-mode code may open. |
+| `LOFI_ONLINE_STT_MODEL` | `nova-3` | Deepgram model for online sessions; runs with `language=multi` so it code-switches. |
+| `LOFI_ONLINE_LLM_MODEL` | `gpt-4o-mini` | OpenAI model for online sessions. |
+| `LOFI_ONLINE_TTS_VOICE` | `86e30c1d-…` | Cartesia voice id for online sessions. The default speaks Spanish as well as English. |
+| `LOFI_ONLINE_EMBED_MODEL` | `text-embedding-3-small` | OpenAI embedding model for the public index — both the build and online retrieval. |
+| `LOFI_ONLINE_ONLY` | *(unset)* | `1` serves online sessions only: no Ollama, no local preflights. Set by `./lofi.sh start --online-only`. |
 | `LOFI_STT_ENGINE` | `whisper_mlx`* | STT engine `services.py` builds: `whisper_mlx`, `faster_whisper`, or `moonshine` (`uv sync --extra moonshine`). *Default is `faster_whisper` on non-Apple-Silicon machines. |
 | `LOFI_WHISPER_MODEL` | `LARGE_V3_TURBO` | `MLXModel` member: `TINY`, `MEDIUM`, `LARGE_V3`, `LARGE_V3_TURBO`. Must match what you prefetched. |
 | `LOFI_FASTER_WHISPER_MODEL` | `DISTIL_MEDIUM_EN` | faster-whisper model (when `LOFI_STT_ENGINE=faster_whisper`); downloads on first use. |
@@ -700,7 +904,8 @@ measured, byte-sensitive text — read them before editing.
 | `LOFI_PIPER_VOICE` | `en_US-lessac-medium` | Piper voice id (when `LOFI_TTS_ENGINE=piper`); downloads (~60 MB) on first use into `./models/piper`. |
 | `LOFI_INPUT_DEVICE_INDEX` | *(system default)* | PyAudio mic index. |
 | `LOFI_OUTPUT_DEVICE_INDEX` | *(system default)* | PyAudio speaker index. |
-| `LOFI_GREETING` | *"Hi. I'm your private, offline financial thinking partner…"* | Opening line spoken on startup. |
+| `LOFI_GREETING` | *"Hi. I'm your private, offline financial thinking partner…"* | Opening line spoken on startup in an offline session. |
+| `LOFI_ONLINE_GREETING` | *"Hi. I'm your online financial thinking partner…"* | Opening line for an online session — it offers the tax documents and language practice, and never claims privacy it doesn't have. |
 | `LOFI_GREETING_DELAY_SECS` | `1.0` | Delay before the greeting (lets the audio-out stream spin up). |
 | `LOFI_MOQ_SUBSCRIBER_TIMEOUT` | `15.0` | Max seconds the MoQ bot holds its greeting for the browser's audio subscription (MoQ has no replay — speaking earlier drops the audio). On timeout it greets anyway. |
 | `LOFI_MOQ_AUDIO_AHEAD_MS` | `500` | Max milliseconds of bot audio written ahead of real time over MoQ. TTS runs faster than real time; uncapped bursts overflow the browser's playback ring buffer and clip the start of every bot turn. Raise only if playback stutters mid-utterance. |
@@ -728,8 +933,9 @@ changes the voice you hear.
 
 ## Repository layout
 
-Both bots share one offline brain (`pipeline.py` — the same STT → VAD → LLM →
-TTS pipeline); they differ only in the transport. The STT/LLM/TTS services are
+Both bots share one brain (`pipeline.py` — the same STT → VAD → LLM → TTS
+pipeline, built offline or online from the session's mode); they differ only
+in the transport. The STT/LLM/TTS services are
 built in `services.py`, dispatched on `LOFI_STT_ENGINE` / `LOFI_TTS_ENGINE` —
 so swapping engines (via `.lofirc` or `./configure.sh -i`) never touches a bot
 file you may have customized.
@@ -763,12 +969,16 @@ lofi/
 │   ├── check_audio.py        # diagnostic: raw mic input level meter
 │   └── check_vad.py          # diagnostic: Silero VAD confidence/volume vs thresholds
 │
+├── data/                     # the documents the index is built from
+│   ├── private/              # transactions + notes — offline sessions only
+│   └── public/               # IRS publications — the online session's whole world
+│
 ├── client/                   # the browser UI (Vite + TypeScript; prebuilt in client/dist)
 ├── evals/                    # eval harness: run_evals.py, queries.jsonl, sweep.sh
 ├── tests/                    # offline pytest suite (no network, fake embedder)
 │
 ├── lofirc.example            # documented config knobs (copy to .lofirc)
-├── env.example               # the three hosted API key names (copy to .env)
+├── env.example               # the three online-session API key names (copy to .env)
 ├── .python-version           # 3.12
 ├── pyproject.toml            # uv project + pinned deps
 ├── uv.lock                   # locked dependency versions
@@ -778,7 +988,7 @@ lofi/
     ├── huggingface/          # Whisper-MLX + faster-whisper + Moonshine (HF cache)
     ├── kokoro/               # Kokoro onnx + voices
     ├── piper/                # Piper voices (if LOFI_TTS_ENGINE=piper)
-    ├── rag-index/            # lofi.db — the RAG index (./lofi.sh index-rag)
+    ├── rag-index/            # lofi.db + lofi-public.db (./lofi.sh index-rag)
     └── ollama/               # Ollama LLM store
 ```
 

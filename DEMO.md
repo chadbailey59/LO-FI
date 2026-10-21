@@ -1,17 +1,24 @@
 # Workshop demo script
 
 A beat-by-beat walkthrough for demoing lofi live. Every expected answer below
-comes from `data/` as shipped; if you've swapped in your own transactions, the
-amounts change but the beats don't.
+comes from `data/` as shipped (`data/private/` transactions and notes,
+`data/public/` IRS publications); if you've swapped in your own transactions,
+the amounts change but the beats don't.
 
 ## Pre-flight (before the audience arrives)
 
 ```bash
-./lofi.sh status          # both model tags present, index built
+./lofi.sh status          # both model tags present, both indexes built
 uv run pytest -q          # green
 ```
 
-- Index missing or stale? `./lofi.sh index-rag`.
+- Index missing or stale? `./lofi.sh index-rag` — it builds the offline db and,
+  with `OPENAI_API_KEY` in `.env`, the public one Beat 5 needs.
+- Doing Beat 5? Check all three keys are in `.env` before the room fills:
+
+  ```bash
+  cut -d= -f1 .env
+  ```
 - Close GPU-hungry apps — backend thinking time is GPU-bound and contention
   shows up as dead air.
 - Warm Ollama: ask one throwaway question before going live so the first
@@ -23,9 +30,18 @@ uv run pytest -q          # green
 ./lofi.sh start
 ```
 
-Open the printed URL. The browser connects over **WebSocket** by default —
-the reliable path. (`?transport=webrtc` and `?transport=moq` exist as URL
-params; MoQ garbles audio and is not demo-safe.)
+Open the printed URL. The browser connects over **SmallWebRTC** by default and
+falls back to WebSocket automatically if that connect fails. (`?transport=`
+pins a starting point; MoQ garbles audio and is not demo-safe.) **On WSL2,
+pin WebSocket** — UDP never crosses the boundary, so the default costs you
+15–30 s of failing first:
+
+```bash
+echo 'http://localhost:7860/?transport=websocket'
+```
+
+The session-mode control sits next to Connect: `🔌 offline` is the default and
+Beats 1–4 all run there. Beat 5 flips it.
 
 **8 GB attendee machines:** split needs two resident models. The fallback is
 
@@ -74,7 +90,8 @@ tools, including the arithmetic.
 
 ## Beat 3 — tax documents (unstructured retrieval)
 
-`data/` ships IRS Pub 17 and Pub 334 alongside the transactions.
+`data/public/` ships IRS Pub 17 and Pub 334 alongside the transactions in
+`data/private/`. Offline sees both; Beat 5's online session sees only the public two.
 
 > **Say:** "Roughly, what's the standard deduction for a single filer?"
 >
@@ -98,15 +115,60 @@ arrives.
 
 **Teach-only — do not demo two-way.** STT is English-configured; spoken
 Spanish or German comes back as gibberish. Let the bot teach; don't answer
-it in Spanish.
+it in Spanish. Two-way is Beat 5's payoff — cloud STT code-switches where
+the local one can't.
 
 (German needs Piper TTS — `LOFI_TTS_ENGINE=piper`, a `de_DE` voice; Kokoro
 has no German.)
 
-## Beat 5 — fast ⚡ / accurate 🧠 toggle
+## Beat 5 — the online flip (the privacy boundary, out loud)
 
-**TODO — punch list item 2, not yet wired.** Once live: fast = backend
-thinking off, accurate = thinking on (optionally 8b vs 27b). The
+The contrast beat. Same page, same bot, one control: flip `🔌 offline` to
+`☁️ online` and reconnect. The `⚠️ ONLINE MODE` banner goes red, and the
+What's Running panel repaints with Deepgram, OpenAI and Cartesia — read the
+service names out to the room before you say a word to the bot.
+
+> **Say:** "Roughly, what's the standard deduction for a single filer?"
+>
+> **Expect:** the same Pub 17 answer as Beat 3, in **about two seconds**.
+> This is the honest reason online mode exists: `gpt-4o-mini` over OpenAI
+> embeddings is an order of magnitude faster than a 7B on a laptop.
+
+> **Say:** "What's the secret passphrase for the tax vault?"
+>
+> **Expect:** a refusal that *names the boundary* — this session is running
+> online, the private records aren't available here, an offline session can
+> answer it. **No passphrase.** This is the beat to linger on: the private db
+> isn't filtered out by a prompt, it is never opened. Online code is wired to
+> `config.public_rag_db_path()`, full stop.
+
+Then flip back to `🔌 offline`, reconnect, and ask for the passphrase again —
+*BLUE MANATEE 436921*, from the same machine, thirty seconds later. The data
+didn't move; the session did.
+
+### Beat 5b — two-way Spanish (optional, needs the restart from Beat 4)
+
+With `LOFI_WAIT_LESSON_LANGUAGE=Spanish` set, an online session doesn't teach
+during a wait — it just talks to you.
+
+> **Say (in Spanish):** "¿Qué es la deducción estándar?"
+>
+> **Expect:** an answer **in Spanish**, in a Cartesia voice that pronounces
+> it. Deepgram's `nova-3` runs with `language=multi`, so it code-switches
+> mid-conversation; switch back to English and so does the bot.
+
+Say the trade-off plainly: this is the one thing the local stack can't do, and
+it costs you the privacy guarantee for the whole session.
+
+**No keys in `.env`?** Online connect fails fast and names every missing key.
+Skip to Recovery, or demo it on purpose — it's a good 10-second explanation of
+where the keys live.
+
+## Beat 6 — fast ⚡ / accurate 🧠 toggle
+
+**TODO — punch list item 2, not yet wired.** The button is hidden unless
+`architecture === "observer"`, and observer is retired. Once live: fast =
+backend thinking off, accurate = thinking on (optionally 8b vs 27b). The
 latency-vs-accuracy moment of the workshop.
 
 ## Recovery moves
@@ -125,6 +187,13 @@ latency-vs-accuracy moment of the workshop.
 - **Latency insurance on a big machine (32 GB+):**
   `LOFI_RAG_LLM_MODEL=qwen3.8:27b ./lofi.sh start` — 25–38 s consistent,
   ~1.6× faster end-to-end than 8b's swings.
+- **Online connect fails.** The error names the missing key. If it's the
+  network and not the key, flip back to `🔌 offline` — every beat but 5 runs
+  there. A laptop with no local models at all can still serve Beat 5:
+
+  ```bash
+  ./lofi.sh start --online-only
+  ```
 - **Wedged session.** Ctrl-C, `./lofi.sh start` again. Cold restart is
   seconds; a confused context is forever.
 - **Logs.** `.lofi/logs/bot-*.log` holds every LLM context (grep
