@@ -42,6 +42,7 @@ def test_lofi_config_message_shape():
     message = _lofi_config_message()
     json.dumps(message)
     assert message["type"] == CONFIG_MESSAGE_TYPE == "lofi-config"
+    assert message["mode"] == "offline"
     # Default architecture is split — the analyst backend gets its own row.
     assert [m["role"] for m in message["models"]] == [
         "STT",
@@ -56,3 +57,21 @@ def test_lofi_config_message_shape():
     assert message["ollama_host"].startswith("http")
     assert isinstance(message["ollama_started_by_lofi"], bool)
     assert message["rag"].startswith(("index:", "no index"))
+
+
+def test_config_message_carries_mode():
+    assert _lofi_config_message("offline")["mode"] == "offline"
+    assert _lofi_config_message("online")["mode"] == "online"
+
+
+def test_online_model_entries_roles(monkeypatch):
+    for key in ("OPENAI_API_KEY", "DEEPGRAM_API_KEY", "CARTESIA_API_KEY"):
+        monkeypatch.setenv(key, f"fake-{key}")
+    message = _lofi_config_message("online")
+    roles = [m["role"] for m in message["models"]]
+    assert roles == ["STT", "LLM", "TTS", "EMBED"]
+    dumped = json.dumps(message)
+    for entry in message["models"]:
+        assert entry["path"] == "—"
+        assert "cloud" in entry["model"]
+    assert "fake-" not in dumped

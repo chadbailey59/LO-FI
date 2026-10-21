@@ -371,8 +371,20 @@ def _llm_entry() -> dict:
     }
 
 
-def model_entries() -> list[dict]:
+def online_model_entries() -> list[dict]:
+    """Online session's four rows — cloud model names only, no local paths."""
+    return [
+        {"role": "STT", "model": f"{config.online_stt_model()} (Deepgram cloud)", "path": "—"},
+        {"role": "LLM", "model": f"{config.online_llm_model()} (OpenAI cloud)", "path": "—"},
+        {"role": "TTS", "model": f"{config.online_tts_voice()} (Cartesia cloud)", "path": "—"},
+        {"role": "EMBED", "model": f"{config.online_embed_model()} (OpenAI cloud)", "path": "—"},
+    ]
+
+
+def model_entries(mode: str = "offline") -> list[dict]:
     """Importable form of the model lines (bot_browser sends them as `lofi-config`)."""
+    if mode == "online":
+        return online_model_entries()
     ollama = f"(Ollama @ {config.ollama_base_url()})"
     entries = [
         {"role": "STT", "model": _stt_line(), "path": _path_line(_stt_file())},

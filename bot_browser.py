@@ -53,7 +53,7 @@ from pipecat.workers.runner import WorkerRunner
 
 import store
 from bot import _configure_logging, _preflight_local
-from pipeline import ONLINE_MODE, build_pipeline
+from pipeline import ONLINE_MODE, build_pipeline, public_rag_summary
 from scripts.print_models import model_entries
 
 # Shell env wins over .env (matches config.py and lofi.sh).
@@ -154,14 +154,20 @@ def session_mode(runner_args) -> str:
     return mode
 
 
-def _lofi_config_message() -> dict:
+def _lofi_config_message(mode: str = OFFLINE_MODE) -> dict:
+    rag = (
+        public_rag_summary()
+        if mode == ONLINE_MODE
+        else store.stats_summary(Path(config.rag_db_path()), config.rag_data_dir())
+    )
     return {
         "type": CONFIG_MESSAGE_TYPE,
-        "models": model_entries(),
+        "mode": mode,
+        "models": model_entries(mode),
         "ollama_host": config.ollama_base_url(),
         "ollama_started_by_lofi": (Path(config.state_dir()) / "ollama.pid").is_file(),
         "architecture": config.architecture(),
-        "rag": store.stats_summary(Path(config.rag_db_path()), config.rag_data_dir()),
+        "rag": rag,
     }
 
 # MoQ transport with audio in/out. Serve mode (the bot is its own MoQ relay).
@@ -339,7 +345,7 @@ async def run_bot(
     async def on_client_ready(rtvi):
         client_ready.set()
         logger.info("RTVI client ready — sending lofi-config")
-        await rtvi.send_server_message(_lofi_config_message())
+        await rtvi.send_server_message(_lofi_config_message(mode))
 
     if _transport_kind(runner_args) in ("webrtc", "websocket"):
         _register_webrtc_handlers(transport, worker)
