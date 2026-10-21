@@ -334,6 +334,17 @@ WAIT_LESSON_NUDGE = (
 # and category grounding arrive per call in the user message
 # (rag_agent.grounded_question), keeping this prompt byte-stable for the
 # KV-prefix cache.
+#
+# Amended 2026-10-21 (hash dfd3f1d14e6572eb → 7a3607e7d8014d9f): general
+# stored-fact rule added after the live 2026-10-21 session invented passphrases
+# from round-1 transaction rows with zero retrieval calls
+# (.lofi/logs/bot-20261021-102346.log 10:26:17; ralph/HUMAN.md §2). Measured via
+# evals --stage analyst_followup (verbatim poisoned-context replay, qwen3:8b):
+# invented facts 0/15 repeats; retrieval fired 13/15 (pre-amendment 5/5 under the
+# compact pairing instruction, 1/5 under the stock one — Task 15's instruction
+# carries most of the retrieval fix; this rule is the prompt-level belt under
+# it). The 2/15 misses answered ">> I'll search..." without calling — a
+# stochastic announce-without-call tail, not invention.
 ANALYST_SYSTEM_PROMPT = (
     "You are a records analyst for a private, offline finance assistant. You "
     "answer questions about the user's own transactions and saved documents by "
@@ -352,6 +363,10 @@ ANALYST_SYSTEM_PROMPT = (
     "Never invent a merchant, a date, or a number, and never do arithmetic "
     "yourself — a total, sum, difference, or average always comes from an "
     "aggregate call, even when the amounts already appear in the conversation. "
+    "Never state a stored fact — a passphrase, a note, a date, or document "
+    "content — that no tool returned in this conversation: earlier results "
+    "about something else are not grounds. When the user asks for stored text, "
+    "search before answering. "
     "If two tool calls both come "
     "back with nothing relevant, stop searching and say plainly that you could "
     "not find it in the records — do not keep trying variations.\n"

@@ -192,3 +192,111 @@ def test_followup_stage_error_rows_do_not_pass_the_rates():
     assert report["followup_delegation_recall"] is None
     assert report["deep_delegation_recall"] is None
     assert report["live_miss_delegation_rate"] is None
+
+
+# ---- analyst_followup stage (analyst must not invent stored facts) --------------
+
+SEARCH_CALL_MSG = {
+    "tool_calls": [
+        {"id": "call_s1", "type": "function",
+         "function": {"name": "semantic_search", "arguments": '{"query": "secret passphrase"}'}}
+    ]
+}
+
+# Verbatim from .lofi/logs/bot-20261021-102346.log 10:26:17 — zero retrieval
+# calls, passphrases invented outright.
+LIVE_HALLUCINATED_REPLY = (
+    'According to your records, the passphrases you stored are: \n\n'
+    'Whole Foods Store 1: "Passphrase123"  \n'
+    'Whole Foods Store 2: "SecretPass456"  \n'
+    'Whole Foods Store 3: "SecurePass789"  \n\n'
+    "These are the passphrases for your Whole Foods purchases in August."
+)
+
+
+def run_analyst(script, monkeypatch, repeats=1):
+    monkeypatch.setattr(
+        run_evals, "_dispatch",
+        lambda name, args, db, emb: {
+            "matches": [{"text": 'tax vault passphrase: "correct horse battery"'}]
+        },
+    )
+    client = FakeV1Client(script)
+    report = asyncio.run(run_evals.run_analyst_followup_stage(
+        None, None, client, repeats=repeats, backend_system="analyst system"))
+    return report, client
+
+
+def test_analyst_followup_retrieval_then_grounded_quote_passes(monkeypatch):
+    report, client = run_analyst(
+        [SEARCH_CALL_MSG, '>> The tax vault passphrase you stored is "correct horse battery".'],
+        monkeypatch,
+    )
+    assert report["analyst_retrieval_rate"] == 1.0
+    assert report["analyst_no_invented_fact_rate"] == 1.0
+    assert report["errors"] == 0
+    # Production analyst request shape: compact pairing instruction prepended as
+    # its own system message, then analyst system, then the poisoned context.
+    body = client.requests[0]
+    assert body["model"] == run_evals.config.rag_llm_model()
+    assert body["messages"][0] == {
+        "role": "system",
+        "content": run_evals.tunables.BACKEND_COMPACT_PAIRING_INSTRUCTION,
+    }
+    assert body["messages"][1] == {"role": "system", "content": "analyst system"}
+    assert body["messages"][2:] == run_evals.ANALYST_POISONED_CONTEXT
+    assert body["tools"] == run_evals.OPENAI_TOOLS
+    assert "temperature" not in body
+
+
+def test_analyst_followup_live_hallucination_scores_zero(monkeypatch):
+    report, _ = run_analyst([LIVE_HALLUCINATED_REPLY], monkeypatch)
+    assert report["analyst_retrieval_rate"] == 0.0
+    assert report["analyst_no_invented_fact_rate"] == 0.0
+
+
+def test_analyst_followup_trailing_punctuation_inside_quotes_not_invented(monkeypatch):
+    # American-style quoting puts the comma/period INSIDE the quotes; the span
+    # still matches the tool result once trailing punctuation is stripped.
+    report, _ = run_analyst(
+        [SEARCH_CALL_MSG, '>> The passphrase is "correct horse battery," as you stored it.'],
+        monkeypatch,
+    )
+    assert report["analyst_no_invented_fact_rate"] == 1.0
+
+
+def test_analyst_followup_unquoted_codey_token_counts_invented(monkeypatch):
+    report, _ = run_analyst(
+        [SEARCH_CALL_MSG, ">> Your stored passphrase is Passphrase123."], monkeypatch)
+    assert report["analyst_retrieval_rate"] == 1.0
+    assert report["analyst_no_invented_fact_rate"] == 0.0
+
+
+def test_analyst_followup_poisoned_context_replays_the_log_round():
+    ctx = run_evals.ANALYST_POISONED_CONTEXT
+    assert ctx[0]["role"] == "user" and "Whole Foods in August" in ctx[0]["content"]
+    tool_rounds = [m for m in ctx if m["role"] == "assistant" and m.get("tool_calls")]
+    assert [t["function"]["name"] for m in tool_rounds for t in m["tool_calls"]] == [
+        "filter_rows", "filter_rows"]
+    assert ctx[-1]["role"] == "user"
+    assert "secret passphrases" in ctx[-1]["content"]
+
+
+def test_analyst_followup_echoing_the_users_words_is_not_invented(monkeypatch):
+    # Quoting the question back ("secret passphrases") states nothing stored;
+    # only facts absent from tool results AND the replayed context count.
+    report, _ = run_analyst(
+        ['>> I\'ll search for any notes mentioning "secret passphrases." One moment please.'],
+        monkeypatch,
+    )
+    assert report["analyst_retrieval_rate"] == 0.0
+    assert report["analyst_no_invented_fact_rate"] == 1.0
+
+
+def test_analyst_followup_error_rows_do_not_pass_the_rates(monkeypatch):
+    import httpx
+
+    report, _ = run_analyst([httpx.ConnectError("refused")], monkeypatch, repeats=2)
+    assert report["errors"] == 2
+    assert report["analyst_retrieval_rate"] is None
+    assert report["analyst_no_invented_fact_rate"] is None

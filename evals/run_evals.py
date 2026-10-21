@@ -878,6 +878,230 @@ async def run_followup_stage(queries: list[dict], client: httpx.AsyncClient) -> 
     }
 
 
+# ---- stage: analyst_followup (analyst must not invent stored facts) -------------
+
+# Delegated-request trailer the backend worker appends to each transcript
+# (pipecat backend_llm_worker.TRANSCRIPT_REQUEST_INSTRUCTION, frozen here as
+# part of the verbatim log replay).
+TRANSCRIPT_REQUEST = (
+    "Act on the user's most recent request in the conversation above. If it "
+    "asks for something, tell the user the result as soon as you have it, "
+    "before going on with other work, in a message that begins with >>. If it "
+    "only stops or changes work already under way, tell them nothing: the "
+    "assistant already has."
+)
+
+# The analyst's own context at the moment it invented passphrases, verbatim from
+# the 2026-10-21 live session (.lofi/logs/bot-20261021-102346.log): round 1's
+# transcript request, working narration, filter_rows error + retry, the three
+# Whole Foods rows and the final answer, then round 2's passphrase request.
+# Live, the analyst answered round 2 in 2 s with ZERO retrieval calls —
+# round 1's transaction rows in context looked like grounds (ralph/HUMAN.md §2
+# note 2026-10-21). The stage replays this context and demands retrieval.
+ANALYST_POISONED_CONTEXT = [
+    {
+        "role": "user",
+        "content": (
+            "Voice conversation so far:\nASSISTANT: Hi. I'm your private, offline "
+            "financial thinking partner. What's on your mind today?\nUSER: Hey, "
+            "what is...   how many   Time said I go to Whole Foods in August.\n\n"
+            + TRANSCRIPT_REQUEST
+        ),
+    },
+    {
+        "role": "assistant",
+        "content": (
+            "Leban\n\n>> To find out how many times you went to Whole Foods in "
+            "August, I'll search your transactions for Whole Foods and filter by "
+            "that month."
+        ),
+    },
+    {
+        "role": "assistant",
+        "tool_calls": [
+            {
+                "id": "call_3scuzxgf",
+                "type": "function",
+                "function": {
+                    "name": "filter_rows",
+                    "arguments": '{"limit": 5, "order_by": "date", "column": "merchant", "value": "Whole Foods", "filters": [{"column": "date", "operator": "between", "value": "2026-08-01", "value2": "2026-08-31"}]}',
+                },
+            }
+        ],
+    },
+    {
+        "role": "tool",
+        "content": '{"error": "filter_rows() missing 1 required positional argument: \'operator\'"}',
+        "tool_call_id": "call_3scuzxgf",
+    },
+    {
+        "role": "assistant",
+        "content": (
+            "To look up your Whole Foods visits in August, I need to specify how "
+            "to order the results. Let me set that to sorting by date, which is "
+            "the default."
+        ),
+    },
+    {
+        "role": "assistant",
+        "tool_calls": [
+            {
+                "id": "call_xbghw9vs",
+                "type": "function",
+                "function": {
+                    "name": "filter_rows",
+                    "arguments": '{"column": "date", "operator": "between", "value": "2026-08-01", "value2": "2026-08-31", "filters": [{"column": "merchant", "operator": "eq", "value": "Whole Foods"}], "limit": 5}',
+                },
+            }
+        ],
+    },
+    {
+        "role": "tool",
+        "content": '{"rows": [{"id": 253152574663202619, "date": "2026-08-25", "merchant": "Whole Foods", "category": "Groceries", "account": "JetBlue (...6769)", "statement": "Whole Foods ABS 10143", "notes": "", "amount": -65.27, "tags": "", "owner": "Shared", "reviewed": ""}, {"id": 251885673541703604, "date": "2026-08-10", "merchant": "Whole Foods", "category": "Groceries", "account": "JetBlue (...6769)", "statement": "WHOLEFDS ABS 10143", "notes": "", "amount": -114.45, "tags": "", "owner": "Shared", "reviewed": ""}, {"id": 251250765966251829, "date": "2026-08-03", "merchant": "Whole Foods", "category": "Groceries", "account": "JetBlue (...6769)", "statement": "WHOLEFDS ABS 10143", "notes": "", "amount": -122.09, "tags": "", "owner": "Shared", "reviewed": ""}], "elapsed_ms": 27.51}',
+        "tool_call_id": "call_xbghw9vs",
+    },
+    {
+        "role": "assistant",
+        "content": (
+            "You visited Whole Foods three times in August. The dates were "
+            "August 3, August 10, and August 25. The amounts spent were $122.09, "
+            "$114.45, and $65.27, respectively."
+        ),
+    },
+    {
+        "role": "user",
+        "content": (
+            "Voice conversation since the previous delegation:\nASSISTANT: Let me "
+            "check your records for how many times you visited Whole Foods in "
+            "August. It might take a moment.\nUSER: You still there?\nASSISTANT: "
+            "You visited Whole Foods three times in August. The dates were August "
+            "3, August 10, and August 25. You spent a total of three hundred and "
+            "one dollars and eighty-one cents during these visits.\nUSER: Can you "
+            "tell me what those secret passphrases is?\n\n" + TRANSCRIPT_REQUEST
+        ),
+    },
+]
+
+# Stored-fact candidates in a spoken answer: double/curly-quoted spans plus bare
+# password-shaped tokens (letters then 2+ digits, e.g. Passphrase123).
+_QUOTED_SPAN_RE = re.compile(r'["“]([^"“”]{3,})["”]')
+_CODEY_TOKEN_RE = re.compile(r"\b[A-Za-z]+\d{2,}\w*\b")
+
+
+def invented_facts(answer: str, tool_results_text: str) -> list[str]:
+    """Stored-fact candidates in the answer absent from every tool result.
+    Strips trailing punctuation — American-style quoting puts it inside the
+    quotes ('"BLUE MANATEE 436921,"')."""
+    hay = tool_results_text.lower()
+    candidates = _QUOTED_SPAN_RE.findall(answer) + _CODEY_TOKEN_RE.findall(answer)
+    return [c for c in (c.strip(" .,;:!?") for c in candidates) if c and c.lower() not in hay]
+
+
+async def _analyst_turn(
+    client: httpx.AsyncClient, backend_system: str, db_path, embedder, max_rounds: int = 6
+) -> dict:
+    import sqlite3
+
+    messages = [
+        {"role": "system", "content": tunables.BACKEND_COMPACT_PAIRING_INSTRUCTION},
+        {"role": "system", "content": backend_system},
+        *ANALYST_POISONED_CONTEXT,
+    ]
+    tool_names: list[str] = []
+    tool_results: list[str] = []
+    answer = ""
+    started = time.perf_counter()
+    for round_index in range(max_rounds):
+        # Production backend shape: rag model, no temperature/reasoning override.
+        # list() snapshots the request body against later in-place appends.
+        body = {
+            "model": config.rag_llm_model(),
+            "messages": list(messages),
+            "tools": OPENAI_TOOLS,
+            "stream": False,
+        }
+        response = await client.post(_v1_url(), json=body)
+        response.raise_for_status()
+        message = response.json()["choices"][0]["message"]
+        calls = message.get("tool_calls") or []
+        if not calls or round_index >= max_rounds - 1:
+            answer = rag_agent.strip_think(message.get("content") or "").strip()
+            break
+        messages.append(message)
+        for call in calls:
+            name = call["function"]["name"]
+            tool_names.append(name)
+            try:
+                args = json.loads(call["function"].get("arguments") or "{}")
+            except json.JSONDecodeError:
+                args = None
+            if not isinstance(args, dict):
+                result = {"error": "arguments must be a JSON object"}
+            else:
+                try:
+                    result = _dispatch(name, args, db_path, embedder)
+                except (TypeError, ValueError, KeyError, sqlite3.Error) as exc:
+                    result = {"error": str(exc)}
+            content = json.dumps(result, default=str)
+            tool_results.append(content)
+            messages.append(
+                {
+                    "role": "tool",
+                    "tool_call_id": call.get("id", f"call-{round_index}"),
+                    "content": content,
+                }
+            )
+    return {
+        "answer": answer,
+        "tools": tool_names,
+        "results_text": "\n".join(tool_results),
+        "ms": round((time.perf_counter() - started) * 1000, 1),
+    }
+
+
+async def run_analyst_followup_stage(
+    db_path, embedder, client: httpx.AsyncClient, repeats: int = 5, backend_system: str | None = None
+) -> dict:
+    """Analyst grounding on the poisoned context: the passphrase question must
+    trigger retrieval, and the answer must not state a stored fact no tool
+    returned this session."""
+    if backend_system is None:
+        grounding = rag_agent.grounded_question("", db_path).rsplit(
+            tunables.QUESTION_PREFIX.rstrip(" "), 1
+        )[0]
+        backend_system = f"{tunables.ANALYST_SYSTEM_PROMPT}\n\n{grounding}"
+    rows = []
+    for i in range(repeats):
+        try:
+            result = await _analyst_turn(client, backend_system, db_path, embedder)
+            result["error"] = None
+            # Grounds = this turn's tool results plus the replayed context
+            # (round-1 tool returns and the user's own words are not inventions).
+            result["invented"] = invented_facts(
+                result["answer"],
+                result["results_text"] + "\n" + json.dumps(ANALYST_POISONED_CONTEXT),
+            )
+        except (httpx.TimeoutException, httpx.HTTPError) as exc:
+            result = {
+                "answer": "", "tools": [], "results_text": "",
+                "ms": None, "error": repr(exc), "invented": None,
+            }
+        rows.append({"id": f"passphrase-replay-{i + 1}", **result})
+    ok = [r for r in rows if not r["error"]]
+    mss = [r["ms"] for r in ok if r["ms"]]
+    return {
+        "rows": rows,
+        "errors": len(rows) - len(ok),
+        "analyst_retrieval_rate": (
+            sum(bool(r["tools"]) for r in ok) / len(ok) if ok else None
+        ),
+        "analyst_no_invented_fact_rate": (
+            sum(not r["invented"] for r in ok) / len(ok) if ok else None
+        ),
+        "analyst_ms_avg": round(sum(mss) / len(mss), 1) if mss else None,
+    }
+
+
 # ---- stage: front (split front model: defer, never invent) --------------------
 
 DEFER_PHRASES = (
@@ -960,7 +1184,17 @@ def _print_table(title: str, rows: list[tuple]) -> None:
         print(" | ".join(str(c) for c in row))
 
 
-def print_report(retrieval_report=None, toolcall_report=None, e2e_report=None, isolate_report=None, split_report=None, front_report=None, followup_report=None) -> None:
+def print_report(retrieval_report=None, toolcall_report=None, e2e_report=None, isolate_report=None, split_report=None, front_report=None, followup_report=None, analyst_followup_report=None) -> None:
+    if analyst_followup_report is not None:
+        _print_table(
+            "Analyst follow-up (poisoned context: retrieve, never invent)",
+            [
+                ("analyst_retrieval_rate", analyst_followup_report["analyst_retrieval_rate"]),
+                ("analyst_no_invented_fact_rate", analyst_followup_report["analyst_no_invented_fact_rate"]),
+                ("errors", analyst_followup_report["errors"]),
+                ("analyst_ms_avg", analyst_followup_report["analyst_ms_avg"]),
+            ],
+        )
     if followup_report is not None:
         _print_table(
             "Follow-up delegation (turns after completed delegation rounds)",
@@ -1083,7 +1317,7 @@ async def _amain(args) -> None:
         PINNED_TODAY, store.date_range(db_path), store.categories(db_path)
     )
 
-    retrieval_report = toolcall_report = e2e_report = isolate_report = split_report = front_report = followup_report = None
+    retrieval_report = toolcall_report = e2e_report = isolate_report = split_report = front_report = followup_report = analyst_followup_report = None
     run_all = args.stage == "all"
 
     if run_all or args.stage == "retrieval":
@@ -1109,8 +1343,10 @@ async def _amain(args) -> None:
             )
         if args.stage == "followup":
             followup_report = await run_followup_stage(queries, client)
+        if args.stage == "analyst_followup":
+            analyst_followup_report = await run_analyst_followup_stage(db_path, embedder, client)
 
-    print_report(retrieval_report, toolcall_report, e2e_report, isolate_report, split_report, front_report, followup_report)
+    print_report(retrieval_report, toolcall_report, e2e_report, isolate_report, split_report, front_report, followup_report, analyst_followup_report)
 
     if args.json:
         reports = {
@@ -1123,6 +1359,7 @@ async def _amain(args) -> None:
                 ("split", split_report),
                 ("front", front_report),
                 ("followup", followup_report),
+                ("analyst_followup", analyst_followup_report),
             ]
             if report is not None
         }
@@ -1137,7 +1374,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
         "--stage",
-        choices=["retrieval", "toolcall", "e2e", "isolate", "split", "front", "followup", "all"],
+        choices=["retrieval", "toolcall", "e2e", "isolate", "split", "front", "followup", "analyst_followup", "all"],
         default="all",
     )
     parser.add_argument(
