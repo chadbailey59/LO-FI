@@ -766,6 +766,22 @@ The workshop question: *what can this computer actually run?* The process:
    analyst + embedder + STT + TTS. `run_ollama.sh` sets
    `OLLAMA_MAX_LOADED_MODELS=3` and `OLLAMA_KEEP_ALIVE=30m` so the working set
    stays loaded instead of thrashing.
+   The suggestions are more than RAM math — the catalog is pre-filtered,
+   because "biggest that fits" alone happily recommends the wrong model:
+   - **Specialist weed-out, by name.** Families matching
+     `code`/`math`/`sql`/`rerank`/`embed`/`guard`/`shield` (qwen3-coder,
+     mathstral, sqlcoder, llama-guard…) are tuned for one job and make poor
+     conversational analysts, however well they fit.
+   - **Legacy weed-out, by age.** A family whose last ollama.com update is
+     over a year old (qwen 1, llama2) only ranks high on *cumulative*
+     downloads; its own successors outclass it at every size.
+   - **Reasoning models** are excluded from cascade picks — nothing strips
+     thinking tokens before the voice (the split *backend* is where they
+     belong).
+
+   The filters shape suggestions, not availability: any model you set
+   explicitly is honored, and `./configure.sh --catalogs` (or
+   `./lofi.sh status -v`) lists everything unfiltered.
 2. **Measure, don't vibe.** The eval harness is the yardstick:
    `uv run python evals/run_evals.py --stage split` scores a candidate
    analyst on gold queries (accuracy, missed questions, latency);

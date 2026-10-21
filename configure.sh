@@ -399,11 +399,16 @@ load_catalog() {
     if (( SHOW_ALL == 0 )); then
       (( gb + 4 > RAM_GB )) && continue
       (( n >= CATALOG_LIMIT )) && continue
+      fam="${line%%:*}"
+      # Name filter: skip specialized families (code/math/sql/rerank/embed/
+      # guard/shield) unfit for chat duty. Mirrors fetch_catalog.keep().
+      case "$fam" in
+        *code*|*math*|*sql*|*rerank*|*embed*|*guard*|*shield*) continue ;;
+      esac
       # Cap size variants per family. Without this, a handful of popular
       # families spend the whole budget on their own 7 sizes and the list
       # shows ~11 distinct models. Cache order is largest-first, so the
       # survivors are the biggest that still fit.
-      fam="${line%%:*}"
       case " $seen_fams " in
         *" $fam:$fam "*) continue ;;
         *" $fam "*) seen_fams="$seen_fams $fam:$fam" ;;
