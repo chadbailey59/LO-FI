@@ -69,6 +69,14 @@ DEFAULT_EMBED_MODEL = "nomic-embed-text"
 # Online mode embeds the public index through OpenAI; the private index
 # stays on nomic-embed-text above.
 DEFAULT_ONLINE_EMBED_MODEL = "text-embedding-3-small"
+# The online-session cascade: Deepgram STT → OpenAI LLM → Cartesia TTS.
+DEFAULT_ONLINE_LLM_MODEL = "gpt-4o-mini"
+# nova-3 transcribes with `language="multi"` (services.build_online_stt), so an
+# English↔Spanish turn lands on one connection.
+DEFAULT_ONLINE_STT_MODEL = "nova-3"
+# Cartesia's cross-lingual voice from pipecat's own examples — speaks Spanish
+# from the same id, so the language practice beat needs no voice swap.
+DEFAULT_ONLINE_TTS_VOICE = "86e30c1d-714b-4074-a1f2-1cb6b552fb49"
 DEFAULT_ARCHITECTURE = "split"
 
 # ===========================================================================

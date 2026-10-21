@@ -15,7 +15,10 @@ dependencies = [
     # Pipecat ≥1.13: first release with LLMWithBackend / BackendLLMWorker
     # (the split architecture). Intel macs stay on the frozen `intel-mac`
     # branch (1.7) — core dep `loudness` ships no Intel-mac wheels.
-    "pipecat-ai[kokoro,moq,silero,whisper]>=1.13.0,<1.14",
+    # Online-session cascade (deepgram STT / openai LLM + embeddings /
+    # cartesia TTS) rides in the base install — a session picks its mode on
+    # the page, so both stacks ship.
+    "pipecat-ai[cartesia,deepgram,kokoro,moq,openai,silero,whisper]>=1.13.0,<1.14",
     # MLX ships no Intel-mac wheels — Whisper-MLX is Apple Silicon only; other
     # platforms default to faster-whisper (CPU) instead (see services.py).
     "pipecat-ai[mlx-whisper]; sys_platform == 'darwin' and platform_machine == 'arm64'",

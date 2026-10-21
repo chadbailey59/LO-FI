@@ -52,6 +52,9 @@ from tunables import (
     DEFAULT_RAG_LLM_MODEL,
     DEFAULT_EMBED_MODEL,
     DEFAULT_ONLINE_EMBED_MODEL,
+    DEFAULT_ONLINE_LLM_MODEL,
+    DEFAULT_ONLINE_STT_MODEL,
+    DEFAULT_ONLINE_TTS_VOICE,
     DEFAULT_ARCHITECTURE,
     DEFAULT_GREETING,
 )
@@ -64,10 +67,10 @@ DEFAULT_MODEL_DIR = "./models"
 # setdefault-ing any cache var — so user overrides win over these defaults.
 # Mirrors scripts/model_dir.sh (bash) and scripts/prefetch_models.py.
 
-# Settings live in `.lofirc`, the three hosted API keys in `.env`.
+# Settings live in `.lofirc`, the three online-mode API keys in `.env`.
 SETTINGS_FILE_NAME = ".lofirc"
 KEYS_FILE_NAME = ".env"
-HOSTED_KEY_NAMES = ("OPENAI_API_KEY", "DEEPGRAM_API_KEY", "CARTESIA_API_KEY")
+ONLINE_KEY_NAMES = ("OPENAI_API_KEY", "DEEPGRAM_API_KEY", "CARTESIA_API_KEY")
 
 
 def _load_config_files(root: Path | None = None) -> None:
@@ -218,7 +221,7 @@ _misplaced = legacy_settings_in_env()
 if _misplaced:
     print(
         "lofi: settings belong in .lofirc now, .env holds only "
-        f"{', '.join(HOSTED_KEY_NAMES)} — move from .env: {', '.join(_misplaced)} "
+        f"{', '.join(ONLINE_KEY_NAMES)} — move from .env: {', '.join(_misplaced)} "
         "(they still apply)",
         file=sys.stderr,
     )
@@ -402,6 +405,38 @@ def online_embed_model() -> str:
     retrieving from it.
     """
     return _get("LOFI_ONLINE_EMBED_MODEL", DEFAULT_ONLINE_EMBED_MODEL)
+
+
+def online_llm_model() -> str:
+    """OpenAI chat model for online sessions (LOFI_ONLINE_LLM_MODEL, default
+    ``gpt-4o-mini``).
+    """
+    return _get("LOFI_ONLINE_LLM_MODEL", DEFAULT_ONLINE_LLM_MODEL)
+
+
+def online_stt_model() -> str:
+    """Deepgram model for online sessions (LOFI_ONLINE_STT_MODEL, default
+    ``nova-3``).
+    """
+    return _get("LOFI_ONLINE_STT_MODEL", DEFAULT_ONLINE_STT_MODEL)
+
+
+def online_tts_voice() -> str:
+    """Cartesia voice id for online sessions (LOFI_ONLINE_TTS_VOICE).
+
+    The default speaks Spanish from the same id, so the language-practice beat
+    needs no voice swap.
+    """
+    return _get("LOFI_ONLINE_TTS_VOICE", DEFAULT_ONLINE_TTS_VOICE)
+
+
+def missing_online_keys() -> list[str]:
+    """Which of the three online-mode keys are unset or blank, in canonical order.
+
+    Online mode needs all three; the connect path reports every missing one at
+    once so a session is not fixed one key per attempt.
+    """
+    return [name for name in ONLINE_KEY_NAMES if not os.getenv(name, "").strip()]
 
 
 def public_rag_data_dir() -> str:

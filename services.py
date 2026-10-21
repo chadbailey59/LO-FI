@@ -11,6 +11,9 @@ Each builder reads its engine choice from config (``LOFI_STT_ENGINE`` /
     LLM: Ollama (the only local LLM path)
     TTS: kokoro (default) | piper
 
+Online sessions take the ``build_online_*`` builders instead — Deepgram STT,
+OpenAI LLM, Cartesia TTS, keyed from the three names in ``.env``.
+
 Engine imports happen lazily inside each branch, so an engine's optional
 dependency (``uv sync --extra moonshine`` / ``--extra piper``) is only required
 if that engine is actually selected. Importing this module has no side effects
@@ -112,6 +115,56 @@ def build_stt():
     sys.exit(
         f"\n✖ Unknown LOFI_STT_ENGINE '{engine}'"
         f" — valid: whisper_mlx (default), faster_whisper, moonshine\n"
+    )
+
+
+def _online_key(name: str) -> str:
+    """The named online-mode key, or exit saying which one to add."""
+    key = os.getenv(name, "").strip()
+    if not key:
+        sys.exit(
+            f"\n✖ online mode needs {name}\n"
+            f"  Add it to .env (see env.example), or run an offline session\n"
+        )
+    return key
+
+
+def build_online_stt():
+    """Deepgram STT for online sessions."""
+    from pipecat.services.deepgram.stt import DeepgramSTTService
+
+    return DeepgramSTTService(
+        api_key=_online_key("DEEPGRAM_API_KEY"),
+        settings=DeepgramSTTService.Settings(
+            model=config.online_stt_model(),
+            # nova-3 code-switches on "multi" — one connection covers an
+            # English↔Spanish turn.
+            language="multi",
+        ),
+    )
+
+
+def build_online_llm(temperature: float | None = None):
+    """OpenAI LLM for online sessions.
+
+    ``temperature``: optional override, same contract as ``build_llm``.
+    """
+    from pipecat.services.openai.llm import OpenAILLMService
+
+    settings = OpenAILLMService.Settings(model=config.online_llm_model())
+    if temperature is not None:
+        settings.temperature = temperature
+    return OpenAILLMService(api_key=_online_key("OPENAI_API_KEY"), settings=settings)
+
+
+def build_online_tts():
+    """Cartesia TTS for online sessions."""
+    from pipecat.services.cartesia.tts import CartesiaTTSService
+
+    return CartesiaTTSService(
+        api_key=_online_key("CARTESIA_API_KEY"),
+        settings=CartesiaTTSService.Settings(voice=config.online_tts_voice()),
+        text_filters=[SpokenTextFilter()],
     )
 
 

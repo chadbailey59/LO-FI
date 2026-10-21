@@ -2,7 +2,7 @@
 # LOFI_* are ours. HF_* and OLLAMA_* are read by huggingface_hub and ollama.
 # Values shown are the defaults. See README.md
 # Prompts and model defaults live in tunables.py — edit that file directly.
-# Hosted API keys never live here: they go in .env (see env.example).
+# Online-mode API keys never live here: they go in .env (see env.example).
 
 LOFI_MODEL_DIR=./models
 
@@ -21,6 +21,15 @@ LOFI_MODEL_DIR=./models
 #LOFI_RAG_DB=./models/rag-index/lofi.db
 #LOFI_RAG_CHUNK_TOKENS=500
 #LOFI_RAG_CHUNK_OVERLAP=50
+
+# Online sessions: the cloud cascade and the public index it retrieves from.
+# Keys for these go in .env.
+#LOFI_ONLINE_STT_MODEL=nova-3                # Deepgram; transcribes with language=multi
+#LOFI_ONLINE_LLM_MODEL=gpt-4o-mini           # OpenAI
+#LOFI_ONLINE_TTS_VOICE=86e30c1d-714b-4074-a1f2-1cb6b552fb49   # Cartesia voice id; speaks Spanish too
+#LOFI_ONLINE_EMBED_MODEL=text-embedding-3-small
+#LOFI_PUBLIC_RAG_DATA_DIR=./data/public      # the only documents an online session can retrieve
+#LOFI_PUBLIC_RAG_DB=./models/rag-index/lofi-public.db
 
 #LOFI_STT_ENGINE=whisper_mlx                 # whisper_mlx | faster_whisper | moonshine
 #LOFI_WHISPER_MODEL=LARGE_V3_TURBO
