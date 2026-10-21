@@ -398,6 +398,90 @@ def test_split_connector_does_not_rerun_front_on_delegate():
     assert connector._respond_on_delegate is False
 
 
+def _deliver_all(connector, frontend, events):
+    import asyncio
+
+    async def run():
+        for event in events:
+            await connector.deliver(frontend, event)
+
+    asyncio.run(run())
+
+
+def _nudges(frontend):
+    from pipecat.frames.frames import LLMMessagesAppendFrame
+
+    return [
+        f
+        for f in frontend.queued
+        if isinstance(f, LLMMessagesAppendFrame) and f.messages == [] and f.run_llm is True
+    ]
+
+
+def test_unmarked_final_answer_still_runs_the_front():
+    # Analyst sometimes omits the spoken mark on its final answer; the note
+    # lands with run_llm=False and the bot sits mute on a finished answer
+    # (measured 2026-10-21 log: answer delivered silent 13s after the
+    # question, spoken only after "You still there?" 63s later).
+    from pipecat.frames.frames import LLMMessagesAppendFrame
+    from pipecat.workers.llm.backend_llm_worker import BackendIdle, BackendOutput
+
+    connector = pipeline.build_records_connector()
+    frontend = RecordingTTSService()
+    _deliver_all(
+        connector,
+        frontend,
+        [BackendOutput(text="You visited three times.", prefers_spoken=False), BackendIdle()],
+    )
+
+    appends = [f for f in frontend.queued if isinstance(f, LLMMessagesAppendFrame)]
+    assert len(appends) == 2
+    note, nudge = appends
+    assert note.messages and note.run_llm is not True
+    assert nudge.messages == [] and nudge.run_llm is True
+
+
+def test_spoken_final_answer_gets_no_nudge():
+    from pipecat.workers.llm.backend_llm_worker import BackendIdle, BackendOutput
+
+    connector = pipeline.build_records_connector()
+    frontend = RecordingTTSService()
+    _deliver_all(
+        connector,
+        frontend,
+        [BackendOutput(text="You visited three times.", prefers_spoken=True), BackendIdle()],
+    )
+    assert _nudges(frontend) == []
+
+
+def test_backend_error_gets_no_nudge():
+    # The error path already appends its own run_llm=True message.
+    from pipecat.workers.llm.backend_llm_worker import BackendError, BackendIdle
+
+    connector = pipeline.build_records_connector()
+    frontend = RecordingTTSService()
+    _deliver_all(connector, frontend, [BackendError(error="boom"), BackendIdle()])
+    assert _nudges(frontend) == []
+
+
+def test_nudge_tracking_resets_each_lull():
+    from pipecat.workers.llm.backend_llm_worker import BackendIdle, BackendOutput
+
+    connector = pipeline.build_records_connector()
+    frontend = RecordingTTSService()
+    _deliver_all(
+        connector,
+        frontend,
+        [
+            BackendOutput(text="note only", prefers_spoken=False),
+            BackendIdle(),
+            BackendOutput(text="Spoken answer.", prefers_spoken=True),
+            BackendIdle(),
+        ],
+    )
+    assert len(_nudges(frontend)) == 1
+
+
 def test_watchdog_reminder_skips_context():
     import asyncio
 

@@ -120,10 +120,20 @@ def build_records_connector():
     DELEGATE_TOOL_DESCRIPTION).
     """
     from pipecat.adapters.schemas.function_schema import FunctionSchema
-    from pipecat.pipeline.llm_with_backend import BACKEND_MESSAGE_PREFIX, BackendConnector
+    from pipecat.frames.frames import LLMMessagesAppendFrame
+    from pipecat.pipeline.llm_with_backend import (
+        BACKEND_MESSAGE_PREFIX,
+        BackendConnector,
+        BackendError,
+        BackendIdle,
+        BackendOutput,
+    )
     from pipecat.services.llm_service import FunctionCallParams
 
     class RecordsBackendConnector(BackendConnector):
+        # Per-lull delivery state: something appended / something ran the front.
+        _lull_appended = False
+        _lull_ran_front = False
         @property
         def tools(self):
             async def handler(params: FunctionCallParams):
@@ -151,6 +161,31 @@ def build_records_connector():
             if message is not None and output.prefers_spoken and not output.is_thought:
                 message = dict(message, content=f"{BACKEND_MESSAGE_PREFIX}{output.text}")
             return message
+
+        # Analyst sometimes omits the spoken mark on its final answer; the
+        # note then lands with run_llm=False and nothing runs the front — the
+        # bot sits mute on a finished answer until the user speaks (measured
+        # 2026-10-21 log: answer delivered silent 13s after the question,
+        # spoken only after "You still there?" 63s later). When a lull ends
+        # with appended output and no front run, nudge one: an empty append
+        # with run_llm=True runs the front on the context it already holds,
+        # waits out in-flight speech, and persists no message.
+        async def deliver(self, frontend, event):
+            await super().deliver(frontend, event)
+            if isinstance(event, BackendOutput):
+                if self.render_output(event) is not None:
+                    self._lull_appended = True
+                    if event.prefers_spoken:
+                        self._lull_ran_front = True
+            elif isinstance(event, BackendError):
+                self._lull_ran_front = True
+            elif isinstance(event, BackendIdle):
+                if self._lull_appended and not self._lull_ran_front:
+                    await self._append(
+                        frontend, LLMMessagesAppendFrame(messages=[], run_llm=True)
+                    )
+                self._lull_appended = False
+                self._lull_ran_front = False
 
     return RecordsBackendConnector(
         frontend_pairing_instruction=COMPACT_PAIRING_INSTRUCTION,
