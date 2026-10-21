@@ -63,13 +63,6 @@ DEFAULT_MODEL_DIR = "./models"
 # setdefault-ing any cache var — so user overrides win over these defaults.
 # Mirrors scripts/model_dir.sh (bash) and scripts/prefetch_models.py.
 
-# API keys are honored from the SHELL environment only — snapshot them before
-# .env loads so a key pasted into .env is detectably refused.
-_SHELL_KEY_SNAPSHOT = {
-    name: os.getenv(name, "").strip()
-    for name in ("LOFI_HOSTED_API_KEY", "OPENAI_API_KEY")
-}
-
 # Settings live in `.lofirc`, the three hosted API keys in `.env`.
 SETTINGS_FILE_NAME = ".lofirc"
 KEYS_FILE_NAME = ".env"
@@ -361,44 +354,6 @@ def llm_model() -> str:
     bot and the pull agree on which model is served.
     """
     return _get("LOFI_LLM_MODEL", DEFAULT_LLM_MODEL)
-
-
-def llm_engine() -> str:
-    """Conversation-LLM engine (LOFI_LLM_ENGINE, default ``ollama``).
-
-    ``ollama``: the local server — the 100% offline path.
-    ``hosted``: any OpenAI-compatible endpoint (OpenAI, Anthropic's compat
-    layer, Groq, OpenRouter) at LOFI_HOSTED_BASE_URL. Front model only; the
-    records analyst always runs on local Ollama.
-    """
-    value = _get("LOFI_LLM_ENGINE", "ollama").strip().lower()
-    if value not in ("ollama", "hosted"):
-        raise SystemExit(
-            f"\n✖ Unknown LOFI_LLM_ENGINE '{value}' — valid: ollama (default), hosted\n"
-        )
-    return value
-
-
-def hosted_base_url() -> str:
-    """OpenAI-compatible endpoint for the hosted engine (LOFI_HOSTED_BASE_URL,
-    default ``https://api.openai.com/v1``)."""
-    return _get("LOFI_HOSTED_BASE_URL", "https://api.openai.com/v1")
-
-
-def hosted_api_key() -> str:
-    """API key for the hosted engine: LOFI_HOSTED_API_KEY, falling back to
-    OPENAI_API_KEY. Shell environment only — a key pasted into .env is refused
-    (see hosted_key_in_dotenv_only)."""
-    return (
-        _SHELL_KEY_SNAPSHOT["LOFI_HOSTED_API_KEY"] or _SHELL_KEY_SNAPSHOT["OPENAI_API_KEY"]
-    )
-
-
-def hosted_key_in_dotenv_only() -> bool:
-    """True when a hosted API key is visible in the environment but was NOT in
-    the shell before .env loaded — i.e. someone put a key in .env."""
-    from_env = _get("LOFI_HOSTED_API_KEY", "").strip() or _get("OPENAI_API_KEY", "").strip()
-    return bool(from_env) and not hosted_api_key()
 
 
 def ollama_base_url() -> str:

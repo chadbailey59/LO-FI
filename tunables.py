@@ -96,8 +96,7 @@ FALLBACK_ANSWER = (
 # 3. CASCADE / SHARED FRONT IDENTITY — edit carefully
 # ===========================================================================
 
-# Identity paragraph shared by both front prompts. hosted_variant() swaps
-# it when LOFI_LLM_ENGINE=hosted so the bot never claims to be offline.
+# Identity paragraph for the offline-session front prompt.
 OFFLINE_INTRO = (
     "You are a private financial thinking partner. You run entirely offline on the "
     "user's own computer — nothing they say leaves this machine, and that privacy is "
@@ -105,17 +104,13 @@ OFFLINE_INTRO = (
     "\n"
 )
 
-HOSTED_INTRO = (
-    "You are a private financial thinking partner. The conversation runs on a hosted "
-    "model the user chose for this session, while their records and documents stay on "
-    "their own computer with a local analyst.\n"
+# Identity paragraph for the online-session front prompt (Task 5).
+ONLINE_INTRO = (
+    "You are a private financial thinking partner. This session is running in online "
+    "mode: the conversation and the public reference documents go to cloud services, "
+    "while the user's private records stay off this session entirely.\n"
     "\n"
 )
-
-
-def hosted_variant(prompt: str) -> str:
-    """Prompt with the offline identity swapped for the hosted one."""
-    return HOSTED_INTRO + prompt.removeprefix(OFFLINE_INTRO)
 
 
 # One prompt for the single-model cascade: personality plus how to use the four

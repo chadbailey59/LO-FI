@@ -58,7 +58,6 @@ from tunables import (
     QUESTION_PREFIX,
     SPLIT_FRONT_PROMPT,
     WAIT_LESSON_NUDGE,
-    hosted_variant,
     system_prompt,
 )
 
@@ -322,8 +321,6 @@ def build_pipeline(transport: BaseTransport) -> BuiltBot:
             date_range=store.date_range(db_path) if records_tools else None,
             categories=store.categories(db_path) if records_tools else None,
         )
-    if config.llm_engine() == "hosted":
-        prompt = hosted_variant(prompt)
     context = (
         LLMContext(messages=[{"role": "system", "content": prompt}], tools=records_tools)
         if records_tools

@@ -20,8 +20,6 @@ interface LofiConfig {
   ollama_started_by_lofi: boolean;
   rag: string;
   architecture?: string;
-  llm_engine?: string;
-  hosted_host?: string | null;
 }
 
 const OWNERSHIP = {
@@ -156,41 +154,18 @@ export function attachConfigPanel(client: PipecatClient, panel: HTMLElement): vo
         `OLLAMA ${message.ollama_host}`,
         `       ${message.ollama_started_by_lofi ? OWNERSHIP.lofi : OWNERSHIP.foreign}`,
         `ARCH   ${message.architecture ?? "cascade"}`,
-        `ENGINE ${message.llm_engine === "hosted" ? `hosted @ ${message.hosted_host}` : "ollama (local)"}`,
         `RAG    ${message.rag}`,
       ].join("\n"),
     );
   });
 }
 
-// What reaches the provider depends on the architecture: with the observer
-// (or split), only the conversation — including spoken answers the local
-// analyst derived from records — leaves; the cascade feeds retrieved rows to
-// the front model directly.
-const HOSTED_DETAIL = {
-  observer:
-    "Your documents and raw transactions stay on this machine — but spoken answers about them are part of the conversation.",
-  split:
-    "Your documents and raw transactions stay on this machine — but spoken answers about them are part of the conversation.",
-  cascade:
-    "The conversation INCLUDES records retrieved by its tools — those rows are sent to the provider.",
-};
-
+// Inert until Task 8 rewires it onto the session's online/offline mode.
 export function attachHostedBanner(client: PipecatClient, banner: HTMLElement): void {
   client.on(RTVIEvent.ServerMessage, (data: unknown) => {
     const message = data as Partial<LofiConfig> | null;
     if (message?.type !== CONFIG_MESSAGE_TYPE) return;
-    const hosted = message.llm_engine === "hosted";
-    banner.hidden = !hosted;
-    if (!hosted) return;
-    banner.replaceChildren();
-    const headline = document.createElement("span");
-    headline.textContent = `⚠️ HOSTED LLM IN USE — your conversation is sent to ${message.hosted_host ?? "a remote provider"}.`;
-    const detail = document.createElement("span");
-    detail.className = "hosted-detail";
-    const arch = (message.architecture ?? "cascade") as keyof typeof HOSTED_DETAIL;
-    detail.textContent = HOSTED_DETAIL[arch] ?? HOSTED_DETAIL.cascade;
-    banner.append(headline, detail);
+    banner.hidden = true;
   });
 }
 

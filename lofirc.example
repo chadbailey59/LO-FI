@@ -13,10 +13,6 @@ LOFI_MODEL_DIR=./models
 #LOFI_WAIT_LESSON_LANGUAGE=Spanish           # split: while the analyst works, the front teaches one related phrase (default off)
 #LOFI_RAG_FAST_LLM_MODEL=                    # analyst fast-mode model; defaults to LOFI_RAG_LLM_MODEL
 
-#LOFI_LLM_ENGINE=ollama                      # ollama (local, default) | hosted (OpenAI-compatible endpoint)
-#LOFI_HOSTED_BASE_URL=https://api.openai.com/v1
-# Hosted API key goes in the SHELL environment, never here:
-#   LOFI_HOSTED_API_KEY (or OPENAI_API_KEY)
 #LOFI_OLLAMA_BASE_URL=http://localhost:11434/v1
 #LOFI_EMBED_MODEL=nomic-embed-text
 

@@ -105,8 +105,6 @@ def _lofi_config_message() -> dict:
         "ollama_host": config.ollama_base_url(),
         "ollama_started_by_lofi": (Path(config.state_dir()) / "ollama.pid").is_file(),
         "architecture": config.architecture(),
-        "llm_engine": config.llm_engine(),
-        "hosted_host": config.hosted_base_url() if config.llm_engine() == "hosted" else None,
         "rag": store.stats_summary(Path(config.rag_db_path()), config.rag_data_dir()),
     }
 

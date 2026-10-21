@@ -364,13 +364,6 @@ def _tts_line() -> str:
 
 
 def _llm_entry() -> dict:
-    if config.llm_engine() == "hosted":
-        host = config.hosted_base_url()
-        return {
-            "role": "LLM",
-            "model": f"{config.llm_model()} (HOSTED @ {host})",
-            "path": "→ remote endpoint — conversation leaves this machine",
-        }
     return {
         "role": "LLM",
         "model": f"{config.llm_model()} (Ollama @ {config.ollama_base_url()})",

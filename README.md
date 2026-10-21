@@ -415,42 +415,10 @@ this project, and nowhere to put one:
 - **Whisper-MLX and Kokoro** download anonymously from Hugging Face (none are
   gated); **Silero VAD** ships bundled with Pipecat.
 
-`.env` is **config only** — model names, a voice, device indices, cache paths. It is
-gitignored, but nothing secret ever belongs in it. The single network event in the
-bot's entire lifecycle is the one-time, anonymous model download in step 2.
-
-The one exception is opt-in: [hosted mode](#going-online-the-hosted-llm-escape-hatch)
-reads an API key from the **shell environment** (`LOFI_HOSTED_API_KEY`), never
-from `.env` or any file in the repo.
-
----
-
-## Going online: the hosted-LLM escape hatch
-
-The same bot can point its **conversation model** at any OpenAI-compatible
-hosted endpoint — OpenAI, Anthropic (via its compatibility layer), Groq,
-OpenRouter — while everything else stays local:
-
-```bash
-export LOFI_HOSTED_API_KEY=sk-...
-LOFI_LLM_ENGINE=hosted LOFI_HOSTED_BASE_URL=https://api.openai.com/v1 \
-  LOFI_LLM_MODEL=gpt-4o-mini ./lofi.sh start
-```
-
-You control exactly what leaves the machine, and the UI says so **loudly** — a
-persistent banner names the provider whenever hosted mode is on:
-
-- **`split`**: the records analyst, the retrieval tools, your
-  documents and raw transactions all stay local. The hosted model sees only the
-  conversation — which includes the analyst's short spoken answers *about* your
-  records, but never the records themselves.
-- **`cascade`**: the hosted model holds the retrieval tools itself, so rows it
-  retrieves are sent to the provider as tool results. Great for comparing
-  SOTA tool-calling against local models; know what you're sharing.
-
-Pick a non-reasoning hosted model — the local reasoning-suppression knob is
-Ollama-specific. STT, TTS, embeddings, and retrieval have no hosted path at
-all: they are local, period.
+`.lofirc`/`.env` are **config only** — model names, a voice, device indices,
+cache paths. They are gitignored, but nothing secret ever belongs in `.lofirc`.
+The single network event in the bot's entire lifecycle is the one-time,
+anonymous model download in step 2.
 
 ---
 
@@ -706,8 +674,6 @@ measured, byte-sensitive text — read them before editing.
 | `LOFI_RAG_LLM_MODEL` | `qwen3:8b` | Ollama tag for the records analyst backend (`split`). Needs a model that emits real API tool calls — `nemotron-3-nano:4b` narrates them as JSON text and fails as the split backend. |
 | `LOFI_RAG_FAST_LLM_MODEL` | `$LOFI_RAG_LLM_MODEL` | Analyst model for the UI's ⚡ fast mode (thinking always off there). A *distinct* fast model needs `OLLAMA_MAX_LOADED_MODELS=4` so nothing gets evicted. |
 | `LOFI_WAIT_LESSON_LANGUAGE` | *(empty = off)* | `split` only. When set, the front teaches one phrase in that language while the analyst works. |
-| `LOFI_LLM_ENGINE` | `ollama` | `ollama` (local) \| `hosted` (any OpenAI-compatible endpoint) — see [Going online](#going-online-the-hosted-llm-escape-hatch). |
-| `LOFI_HOSTED_BASE_URL` | `https://api.openai.com/v1` | Endpoint for `hosted` mode. Key comes from the shell env: `LOFI_HOSTED_API_KEY` (or `OPENAI_API_KEY`). |
 | `LOFI_OLLAMA_BASE_URL` | `http://localhost:11434/v1` | OpenAI-compatible Ollama endpoint (note the trailing `/v1`). The RAG embedder talks to the same host minus `/v1`. |
 | `LOFI_EMBED_MODEL` | `nomic-embed-text` | Ollama model tag for RAG embeddings. Pull it with `ollama pull nomic-embed-text`. |
 | `LOFI_RAG_DATA_DIR` | `./data` | The documents to index (`.txt`/`.md`/`.pdf`) — put files here, then `./lofi.sh index-rag`. Absolute, `~`, or relative-to-repo. |
@@ -755,9 +721,9 @@ changes the voice you hear.
 
 Both bots share one offline brain (`pipeline.py` — the same STT → VAD → LLM →
 TTS pipeline); they differ only in the transport. The STT/LLM/TTS services are
-built in `services.py`, dispatched on `LOFI_STT_ENGINE` / `LOFI_TTS_ENGINE` /
-`LOFI_LLM_ENGINE` — so swapping engines (via `.env` or `./configure.sh -i`)
-never touches a bot file you may have customized.
+built in `services.py`, dispatched on `LOFI_STT_ENGINE` / `LOFI_TTS_ENGINE` —
+so swapping engines (via `.lofirc` or `./configure.sh -i`) never touches a bot
+file you may have customized.
 
 ```
 lofi/
