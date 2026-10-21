@@ -278,9 +278,8 @@ $env:LOFI_LLM_MODEL = "llama3.2:1b"
 $env:LOFI_ARCHITECTURE = "cascade"
 ```
 
-Optional: `uv sync --extra webrtc`
-enables `?transport=webrtc` — native loopback UDP works, unlike WSL2, so
-WebRTC's Opus-encoded path is available here.
+Native Windows is the happy path for the default `webrtc` transport: loopback
+UDP works here, unlike WSL2, so WebRTC's Opus-encoded media needs no fallback.
 
 ### Route B: WSL2
 
@@ -338,13 +337,20 @@ on the Windows side.) Then, in **a browser on Windows**, open:
 http://localhost:7860
 ```
 
-Click **Connect**, allow the mic, talk. WebSocket — the default transport —
-is the only one that works here: MoQ's QUIC and WebRTC's media are both UDP,
-which never crosses the Windows↔WSL boundary (verified in NAT and mirrored
-modes, Hyper-V firewall open, raw-UDP probe). The WebSocket transport is pure
-TCP and crosses the boundary the same way the web page itself does. Don't
-force `?transport=moq` or `?transport=webrtc` here — each spends ~15–30 s
-failing before the fallback chain lands back on websocket.
+Open the page with **`?transport=websocket`** — WebSocket is the only
+transport that works here: MoQ's QUIC and WebRTC's media are both UDP, which
+never crosses the Windows↔WSL boundary (verified in NAT and mirrored modes,
+Hyper-V firewall open, raw-UDP probe). The WebSocket transport is pure TCP and
+crosses the boundary the same way the web page itself does. The client's
+default is `webrtc` and it does fall back to websocket on its own, but that
+costs ~15–30 s of failing first — so pin the param:
+
+```
+http://localhost:7860/?transport=websocket
+```
+
+Then click **Connect**, allow the mic, talk. Don't force `?transport=moq`
+here either.
 
 ### Windows troubleshooting
 
@@ -393,16 +399,19 @@ fully offline — the browser talks to the bot over loopback, no internet):
 ./lofi.sh start    # open http://localhost:7860 in any browser
 ```
 
-The default browser transport is **WebSocket** — pure TCP, works in every
-browser and across every boundary (including Windows↔WSL2, where UDP never
-crosses). The same bot serves two more, forced with `?transport=moq` /
-`?transport=webrtc`; a param-forced transport that fails to connect falls
-back automatically (**moq → webrtc → websocket**):
+The default browser transport is **SmallWebRTC** — the classic voice-bot
+transport, UDP media over loopback, in the base install (aiortc ships a
+pure-Python wheel). A connect that fails falls back automatically, once, to
+**websocket**; the full chain is **moq → webrtc → websocket**, and
+`?transport=` picks a starting point:
 
+- **SmallWebRTC** (`?transport=webrtc`, *the default*): UDP media over
+  loopback. Needs UDP to reach the bot — so not across Windows↔WSL2.
+- **WebSocket** (`?transport=websocket`): pure TCP, works in every browser and
+  across every boundary (including Windows↔WSL2, where UDP never crosses).
+  Pin this one on WSL2 to skip the webrtc attempt.
 - **MoQ over QUIC** (`?transport=moq`): media-over-QUIC via WebTransport,
   which Safari and Firefox don't ship yet (Chrome/Edge only).
-- **SmallWebRTC** (`?transport=webrtc`, `uv sync --extra webrtc`): the
-  classic voice-bot transport, UDP media over loopback.
 
 ---
 
@@ -430,7 +439,7 @@ anonymous model download in step 2.
 | Language model | `qwen2.5:7b` front + `qwen3:8b` records analyst *(defaults)* via **Ollama** | Local, OpenAI-compatible endpoint; env-configurable. The split architecture's analyst backend (`LOFI_RAG_LLM_MODEL`) answers from your records. |
 | Text-to-speech | `KokoroTTSService` *(default)* | Natural local neural voice (kokoro-onnx). Alternative via `LOFI_TTS_ENGINE`: `piper` |
 | Turn-taking | Silero VAD | Barge-in / interruptions, fully local (bundled with Pipecat) |
-| Transport | `WebSocket` (browser) *(default)* | free echo cancellation via `getUserMedia`; works in any browser. `?transport=moq` / `?transport=webrtc` opt into the others |
+| Transport | `SmallWebRTCTransport` (browser) *(default)* | free echo cancellation via `getUserMedia`; auto-falls back to `?transport=websocket` (pure TCP, any browser, any boundary). `?transport=moq` opts into media-over-QUIC |
 | Alternative transport | `LocalAudioTransport` | PyAudio mic + speaker I/O (requires headphones) |
 
 ---

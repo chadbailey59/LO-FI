@@ -18,7 +18,11 @@ dependencies = [
     # Online-session cascade (deepgram STT / openai LLM + embeddings /
     # cartesia TTS) rides in the base install — a session picks its mode on
     # the page, so both stacks ship.
-    "pipecat-ai[cartesia,deepgram,kokoro,moq,openai,silero,whisper]>=1.13.0,<1.14",
+    # webrtc (aiortc) is the default browser transport, so it ships too:
+    # aiortc 1.15.0 is a pure-Python wheel (py3-none-any) and its binary deps
+    # all cover mac-arm64 / manylinux-x86_64 / win-amd64 (av cp312-abi3,
+    # pylibsrtp cp310-abi3, aioice pure-python) — verified on PyPI 2026-10-21.
+    "pipecat-ai[cartesia,deepgram,kokoro,moq,openai,silero,webrtc,whisper]>=1.13.0,<1.14",
     # MLX ships no Intel-mac wheels — Whisper-MLX is Apple Silicon only; other
     # platforms default to faster-whisper (CPU) instead (see services.py).
     "pipecat-ai[mlx-whisper]; sys_platform == 'darwin' and platform_machine == 'arm64'",
@@ -36,11 +40,6 @@ dependencies = [
 [project.optional-dependencies]
 moonshine = ["pipecat-ai[moonshine]"]
 piper = ["pipecat-ai[piper]"]
-# SmallWebRTC browser transport (aiortc). The fallback path for Windows/WSL2
-# attendees (MoQ's QUIC/UDP cannot cross the Windows↔WSL boundary) and for
-# browsers without WebTransport (Safari, Firefox).
-#   uv sync --extra webrtc
-webrtc = ["pipecat-ai[webrtc]"]
 # bot.py (LocalAudioTransport) only. PyAudio ships wheels for Windows *only*, so
 # on macOS/Linux it compiles against PortAudio — the one dependency here that
 # needs a C toolchain. Keeping it out of the base install means a bare

@@ -176,8 +176,8 @@ cmd_start() {
   case "$transport" in
     moq)
       # No -t pin: the runner then serves every installed browser transport
-      # (MoQ always; SmallWebRTC with --extra webrtc) and the client picks per
-      # session via /start — the WebRTC fallback path needs this.
+      # (SmallWebRTC, MoQ, websocket) and the client picks per session via
+      # /start — the webrtc → websocket fallback path needs this.
       nohup uv run python bot_browser.py --host localhost --port "$LOFI_WEB_PORT" >"$bot_log" 2>&1 &
       ;;
     headphones)
@@ -203,7 +203,7 @@ cmd_start() {
     if [[ "${LOFI_OPEN_BROWSER:-1}" == "0" ]]; then
       :
     elif grep -qi microsoft /proc/version 2>/dev/null; then
-      echo "start: (WSL detected — open the URL above in a WINDOWS browser; ?transport=webrtc for audio)"
+      echo "start: (WSL detected — open the URL above in a WINDOWS browser; add ?transport=websocket for audio)"
     elif command -v open >/dev/null 2>&1; then
       open "$WEB_URL"
     elif command -v xdg-open >/dev/null 2>&1; then
@@ -279,8 +279,8 @@ cmd_help() {
   case "$1" in
     start)
       echo "usage: ./lofi.sh start [-t moq|headphones] [--online-only]"
-      echo "  -t, --transport   moq (browser bot, the default — serves MoQ, plus WebRTC"
-      echo "                    when installed via 'uv sync --extra webrtc')"
+      echo "  -t, --transport   moq (browser bot, the default — serves SmallWebRTC (the"
+      echo "                    client's default), MoQ and websocket)"
       echo "                    headphones (local mic/speakers via PyAudio — wear headphones)"
       echo "  --online-only     serve online sessions only (LOFI_ONLINE_ONLY=1): no Ollama,"
       echo "                    no local model preflights; an offline connect is refused"

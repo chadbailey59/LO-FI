@@ -836,7 +836,7 @@ dependencies = [
     { name = "fastapi" },
     { name = "loguru" },
     { name = "num2words" },
-    { name = "pipecat-ai", extra = ["deepgram", "kokoro", "moq", "openai", "whisper"] },
+    { name = "pipecat-ai", extra = ["deepgram", "kokoro", "moq", "openai", "webrtc", "whisper"] },
     { name = "pipecat-ai", extra = ["mlx-whisper"], marker = "platform_machine == 'arm64' and sys_platform == 'darwin'" },
     { name = "pypdf" },
     { name = "python-dotenv" },
@@ -856,9 +856,6 @@ moonshine = [
 piper = [
     { name = "pipecat-ai", extra = ["piper"] },
 ]
-webrtc = [
-    { name = "pipecat-ai", extra = ["webrtc"] },
-]
 
 [package.dev-dependencies]
 dev = [
@@ -870,11 +867,10 @@ requires-dist = [
     { name = "fastapi", specifier = ">=0.115.6,<1" },
     { name = "loguru", specifier = ">=0.7.3" },
     { name = "num2words", specifier = ">=0.5.14" },
-    { name = "pipecat-ai", extras = ["cartesia", "deepgram", "kokoro", "moq", "openai", "silero", "whisper"], specifier = ">=1.13.0,<1.14" },
+    { name = "pipecat-ai", extras = ["cartesia", "deepgram", "kokoro", "moq", "openai", "silero", "webrtc", "whisper"], specifier = ">=1.13.0,<1.14" },
     { name = "pipecat-ai", extras = ["mlx-whisper"], marker = "platform_machine == 'arm64' and sys_platform == 'darwin'" },
     { name = "pipecat-ai", extras = ["moonshine"], marker = "extra == 'moonshine'" },
     { name = "pipecat-ai", extras = ["piper"], marker = "extra == 'piper'" },
-    { name = "pipecat-ai", extras = ["webrtc"], marker = "extra == 'webrtc'" },
     { name = "pyaudio", marker = "extra == 'local-audio'", specifier = ">=0.2.14" },
     { name = "pypdf", specifier = ">=6.16.2" },
     { name = "python-dotenv", specifier = ">=1.2.2" },
@@ -883,7 +879,7 @@ requires-dist = [
     { name = "textual", specifier = ">=8.2.8" },
     { name = "uvicorn", specifier = ">=0.32.0,<1" },
 ]
-provides-extras = ["moonshine", "piper", "webrtc", "local-audio"]
+provides-extras = ["moonshine", "piper", "local-audio"]
 
 [package.metadata.requires-dev]
 dev = [{ name = "pytest", specifier = ">=9.1.1" }]

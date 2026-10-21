@@ -10,15 +10,16 @@ export type SessionMode = "offline" | "online";
 
 const TRANSPORT_NAMES: TransportName[] = ["moq", "webrtc", "websocket"];
 
-// ?transport=moq|webrtc|websocket wins; otherwise websocket — pure TCP, no
-// FFI, works on every platform including Windows/WSL2 (where neither QUIC nor
-// WebRTC's UDP media cross the boundary). MoQ and WebRTC stay reachable via
-// the URL param; the auto-fallback chain still walks moq → webrtc → websocket
-// when a param-selected transport fails.
+// ?transport=moq|webrtc|websocket wins; otherwise webrtc — the classic
+// voice-bot transport, UDP media over loopback, aiortc in the base install.
+// A failed connect falls back once to websocket (pure TCP, crosses the
+// Windows↔WSL boundary where neither QUIC nor WebRTC media do); see
+// fallBackToNextTransport in main.ts. WSL2 attendees pin ?transport=websocket
+// to skip the ~15-30 s webrtc attempt.
 export function pickTransport(): TransportName {
   const param = new URLSearchParams(window.location.search).get("transport");
   if (TRANSPORT_NAMES.includes(param as TransportName)) return param as TransportName;
-  return "websocket";
+  return "webrtc";
 }
 
 function buildTransport(transportName: TransportName) {

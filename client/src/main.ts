@@ -139,8 +139,9 @@ if (transportName === "moq" && typeof WebTransport === "undefined") {
 
 render(client.state);
 
-// Arriving via the automatic MoQ→WebRTC fallback: connect without a click
-// (mic permission was already granted to this origin on the failed attempt).
+// Arriving via the automatic transport fallback (webrtc→websocket, or
+// moq→webrtc when ?transport=moq was forced): connect without a click — mic
+// permission was already granted to this origin on the failed attempt.
 if (new URLSearchParams(window.location.search).get("autoconnect") === "1") {
   connectButton.click();
 }
