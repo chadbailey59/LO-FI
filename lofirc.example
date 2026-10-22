@@ -5,6 +5,10 @@
 LOFI_MODEL_DIR=./models
 
 #LOFI_ARCHITECTURE=llmwithbackend            # llmwithbackend (default: front + analyst backend) | cascade (STT,LLM,TTS)
+                                             # flags win: ./lofi.sh start --cascade | --llmwithbackend
+
+#LOFI_ONLINE_ONLY=0                          # 1 = serve online sessions only (./lofi.sh start --online-only)
+#LOFI_OFFLINE_ONLY=0                         # 1 = serve offline sessions only (./lofi.sh start --offline-only); wins when both are set
 
 #LOFI_LLM_MODEL=qwen2.5:7b
 #LOFI_RAG_LLM_MODEL=qwen3:8b                 # records analyst backend; needs real API tool calls

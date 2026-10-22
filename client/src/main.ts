@@ -76,6 +76,30 @@ modeSelect.addEventListener("change", () => {
 
 document.querySelector<HTMLSpanElement>("#transport-name")!.textContent = transportName;
 
+// Serve mode from the bot (/api/lofi-mode): grey out the option an
+// --online-only / --offline-only process refuses and pre-select the one it
+// serves. Forcing the value fires the change handler, so the page reloads
+// once onto the right mode's transport.
+async function applyServeMode(): Promise<void> {
+  let mode = "both";
+  try {
+    const resp = await fetch("/api/lofi-mode");
+    mode = (await resp.json()).mode ?? "both";
+  } catch {
+    return;
+  }
+  if (mode !== "online-only" && mode !== "offline-only") return;
+  const forced = mode === "online-only" ? "online" : "offline";
+  for (const option of modeSelect.options) {
+    option.disabled = option.value !== forced;
+  }
+  if (modeSelect.value !== forced) {
+    modeSelect.value = forced;
+    modeSelect.dispatchEvent(new Event("change"));
+  }
+}
+void applyServeMode();
+
 // Connect failed: reload once onto websocket (pure TCP, crosses any boundary
 // that forwards TCP — the Windows/WSL2 case) and auto-connect. Storage guards
 // the loop; no storage → no auto-retry.

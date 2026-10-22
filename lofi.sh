@@ -6,9 +6,11 @@
 # (default .lofi/). An Ollama you started yourself is never touched.
 #
 # Usage:
-#   ./lofi.sh start [-t browser|headphones] [--online-only]
+#   ./lofi.sh start [-t browser|headphones] [--online-only|--offline-only] [--cascade|--llmwithbackend]
 #                                         # bring up Ollama if needed, then the bot (default: browser)
 #                                         # --online-only: cloud-only sessions, no Ollama, no local models
+#                                         # --offline-only: local sessions only; an online connect is refused
+#                                         # --cascade|--llmwithbackend: pick the bot architecture
 #   ./lofi.sh stop                        # stop only what lofi started (recorded PIDs)
 #   ./lofi.sh status [-v]                 # machine, ownership, bot, models (configured + downloaded), rag; -v adds full catalogs
 #   ./lofi.sh index-rag                   # build/rebuild both document indexes
@@ -73,6 +75,22 @@ missing_models() {
   echo "$missing"
 }
 
+truthy() {
+  case "$(printf '%s' "${1:-}" | tr '[:upper:]' '[:lower:]')" in
+    1|true|yes|on) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+# Effective serve mode from LOFI_OFFLINE_ONLY / LOFI_ONLINE_ONLY —
+# matches config.serve_mode(): offline-only wins a conflict.
+serve_mode() {
+  if truthy "${LOFI_OFFLINE_ONLY:-}"; then echo "offline-only"
+  elif truthy "${LOFI_ONLINE_ONLY:-}"; then echo "online-only"
+  else echo "both"
+  fi
+}
+
 pid_alive()    { [[ -n "${1:-}" ]] && ps -p "$1" >/dev/null 2>&1; }
 recorded_pid() { cat "$STATE_DIR/$1.pid" 2>/dev/null || true; }
 
@@ -119,22 +137,44 @@ cmd_index_rag() {
 }
 
 cmd_start() {
-  local transport="browser" online_only=0
+  local transport="browser" online_flag=0 offline_flag=0 cascade_flag=0 llmwb_flag=0
   while [[ $# -gt 0 ]]; do
     case "$1" in
-      -t|--transport) transport="${2:-}"; shift 2 || shift ;;
-      --online-only)  online_only=1; shift ;;
-      -h|--help)      usage; exit 0 ;;
+      -t|--transport)   transport="${2:-}"; shift 2 || shift ;;
+      --online-only)    online_flag=1; shift ;;
+      --offline-only)   offline_flag=1; shift ;;
+      --cascade)        cascade_flag=1; shift ;;
+      --llmwithbackend) llmwb_flag=1; shift ;;
+      -h|--help)        usage; exit 0 ;;
       *) echo "lofi: unknown start option '$1' (try ./lofi.sh -h)" >&2; exit 1 ;;
     esac
   done
+  if (( online_flag && offline_flag )); then
+    echo "lofi: --online-only and --offline-only conflict — pick one" >&2; exit 1
+  fi
+  if (( cascade_flag && llmwb_flag )); then
+    echo "lofi: --cascade and --llmwithbackend conflict — pick one" >&2; exit 1
+  fi
+  # Flags override the config files; zero the opposite mode var so the
+  # offline-wins conflict rule can't flip a flag's choice.
+  (( online_flag ))  && export LOFI_ONLINE_ONLY=1 LOFI_OFFLINE_ONLY=0
+  (( offline_flag )) && export LOFI_OFFLINE_ONLY=1 LOFI_ONLINE_ONLY=0
+  (( cascade_flag )) && export LOFI_ARCHITECTURE=cascade
+  (( llmwb_flag ))   && export LOFI_ARCHITECTURE=llmwithbackend
+
+  local mode
+  mode="$(serve_mode)"
+  if [[ "$mode" == "offline-only" ]] && truthy "${LOFI_ONLINE_ONLY:-}"; then
+    echo "start: LOFI_ONLINE_ONLY and LOFI_OFFLINE_ONLY are both set — offline-only wins."
+  fi
+
   case "$transport" in
     browser|headphones) ;;
     *) echo "lofi: unknown transport '$transport' — valid: browser (default), headphones" >&2; exit 1 ;;
   esac
   # The local-audio bot has no online stack to run.
-  if [[ "$online_only" == 1 && "$transport" == "headphones" ]]; then
-    echo "lofi: --online-only needs the browser bot — drop '-t headphones'" >&2; exit 1
+  if [[ "$mode" == "online-only" && "$transport" == "headphones" ]]; then
+    echo "lofi: online-only (--online-only / LOFI_ONLINE_ONLY=1) needs the browser bot — drop '-t headphones'" >&2; exit 1
   fi
 
   mkdir -p "$STATE_DIR"
@@ -150,11 +190,13 @@ cmd_start() {
     exit 1
   fi
 
-  if [[ "$online_only" == 1 ]]; then
-    export LOFI_ONLINE_ONLY=1
-    echo "start: --online-only — sessions run on Deepgram/OpenAI/Cartesia; Ollama stays down."
+  if [[ "$mode" == "online-only" ]]; then
+    echo "start: online-only — sessions run on Deepgram/OpenAI/Cartesia; Ollama stays down."
     echo "start: pick ☁️ online on the page; an offline connect is refused."
   else
+    if [[ "$mode" == "offline-only" ]]; then
+      echo "start: offline-only — pick 🔒 offline on the page; an online connect is refused."
+    fi
     if ! ollama_up; then
       echo "start: bringing up Ollama (store → ${OLLAMA_MODELS}; log → ollama.log)"
       nohup ./scripts/run_ollama.sh >"$REPO/ollama.log" 2>&1 &
@@ -284,12 +326,18 @@ cmd_get_debug_log() {
 cmd_help() {
   case "$1" in
     start)
-      echo "usage: ./lofi.sh start [-t browser|headphones] [--online-only]"
+      echo "usage: ./lofi.sh start [-t browser|headphones] [--online-only|--offline-only] [--cascade|--llmwithbackend]"
       echo "  -t, --transport   browser (the default — serves websocket for offline"
       echo "                    sessions and SmallWebRTC for online sessions)"
       echo "                    headphones (local mic/speakers via PyAudio — wear headphones)"
       echo "  --online-only     serve online sessions only (LOFI_ONLINE_ONLY=1): no Ollama,"
       echo "                    no local model preflights; an offline connect is refused"
+      echo "  --offline-only    serve offline sessions only (LOFI_OFFLINE_ONLY=1): local stack"
+      echo "                    as usual; an online connect is refused"
+      echo "  --cascade         one model holds the retrieval tools (LOFI_ARCHITECTURE=cascade)"
+      echo "  --llmwithbackend  front model + analyst backend, the default"
+      echo "                    (LOFI_ARCHITECTURE=llmwithbackend)"
+      echo "  flags win over .lofirc; both vars set means offline-only wins"
       echo "  brings up Ollama first if nothing answers on \$OLLAMA_HOST (and records its pid)" ;;
     stop)
       echo "usage: ./lofi.sh stop"

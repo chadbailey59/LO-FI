@@ -433,6 +433,19 @@ the ~12 GB of weights, or when Ollama is deliberately stopped. A bare connect
 in that process defaults to online. It refuses `-t headphones` — the
 local-audio bot has no online stack.
 
+### Offline-only: nothing leaves the machine
+
+```bash
+./lofi.sh start --offline-only
+```
+
+The mirror flag: serves with `LOFI_OFFLINE_ONLY=1`. The local stack runs as
+usual, and an online connect is refused. Either restriction can also live in
+`.lofirc` (`LOFI_ONLINE_ONLY=1` / `LOFI_OFFLINE_ONLY=1`); the start flags win
+over the file, both unset means both modes are available, and when both vars
+are set offline-only wins. The page greys out the mode the process refuses
+and pre-selects the one it serves.
+
 ### Two-way language practice
 
 ```bash
@@ -455,7 +468,9 @@ never sent to the browser, and never appear in the What's Running panel.
 
 ## Two architectures, one env var
 
-`LOFI_ARCHITECTURE` picks how retrieval and conversation share the work:
+`LOFI_ARCHITECTURE` picks how retrieval and conversation share the work —
+set it in `.lofirc`, or per start with the `./lofi.sh start --cascade` /
+`--llmwithbackend` flags (flags win over the file):
 
 - **`llmwithbackend`** (the default) — a conversational front model (reasoning off)
   delegates records work to a reasoning analyst backend via Pipecat's
@@ -765,7 +780,9 @@ cp env.example .env           # keys + online config — only if you want online
 For any `LOFI_*` knob, first hit wins:
 
 1. **The shell environment** — `LOFI_ARCHITECTURE=cascade ./lofi.sh start`.
-   Beats both files, always.
+   Beats both files, always. The start flags (`--online-only`,
+   `--offline-only`, `--cascade`, `--llmwithbackend`) export into this slot,
+   so they win too.
 2. **`.lofirc`** — your persistent settings. Loaded as defaults, so it never
    overrides the line above.
 3. **`.env`** — loaded next, same no-override rule, so `.lofirc` wins for a
@@ -828,6 +845,7 @@ measured, byte-sensitive text — read them before editing.
 | `LOFI_ONLINE_TTS_VOICE` | `86e30c1d-…` | Cartesia voice id for online sessions. The default speaks Spanish as well as English. |
 | `LOFI_ONLINE_EMBED_MODEL` | `text-embedding-3-small` | OpenAI embedding model for the public index — both the build and online retrieval. |
 | `LOFI_ONLINE_ONLY` | *(unset)* | `1` serves online sessions only: no Ollama, no local preflights. Set by `./lofi.sh start --online-only`. |
+| `LOFI_OFFLINE_ONLY` | *(unset)* | `1` serves offline sessions only: an online connect is refused. Set by `./lofi.sh start --offline-only`. Wins when both `*_ONLY` vars are set; both unset serves both modes. |
 | `LOFI_STT_ENGINE` | `whisper_mlx`* | STT engine `services.py` builds: `whisper_mlx`, `faster_whisper`, or `moonshine` (`uv sync --extra moonshine`). *Default is `faster_whisper` on non-Apple-Silicon machines. |
 | `LOFI_WHISPER_MODEL` | `LARGE_V3_TURBO` | `MLXModel` member: `TINY`, `MEDIUM`, `LARGE_V3`, `LARGE_V3_TURBO`. Must match what you prefetched. |
 | `LOFI_FASTER_WHISPER_MODEL` | `DISTIL_MEDIUM_EN` | faster-whisper model (when `LOFI_STT_ENGINE=faster_whisper`); downloads on first use. |

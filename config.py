@@ -451,14 +451,39 @@ def missing_online_keys() -> list[str]:
     return [name for name in ONLINE_KEY_NAMES if not os.getenv(name, "").strip()]
 
 
+def _truthy(name: str) -> bool:
+    return _get(name, "").strip().lower() in ("1", "true", "yes", "on")
+
+
 def online_only() -> bool:
     """Whether this process serves online sessions only (LOFI_ONLINE_ONLY,
     set by ``./lofi.sh start --online-only``).
 
     Skips the local LLM/STT/RAG preflights, so the bot starts with Ollama
-    down; a connect asking for offline is refused.
+    down; a connect asking for offline is refused. When LOFI_OFFLINE_ONLY is
+    also set, offline-only wins and this returns False.
     """
-    return _get("LOFI_ONLINE_ONLY", "").strip().lower() in ("1", "true", "yes", "on")
+    return _truthy("LOFI_ONLINE_ONLY") and not offline_only()
+
+
+def offline_only() -> bool:
+    """Whether this process serves offline sessions only (LOFI_OFFLINE_ONLY,
+    set by ``./lofi.sh start --offline-only``).
+
+    The local stack runs as usual; a connect asking for online is refused.
+    Wins over LOFI_ONLINE_ONLY when both are set.
+    """
+    return _truthy("LOFI_OFFLINE_ONLY")
+
+
+def serve_mode() -> str:
+    """Which sessions this process serves: ``offline-only``, ``online-only``,
+    or ``both`` (the default when neither LOFI_*_ONLY var is set)."""
+    if offline_only():
+        return "offline-only"
+    if online_only():
+        return "online-only"
+    return "both"
 
 
 def public_rag_data_dir() -> str:

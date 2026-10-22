@@ -258,6 +258,78 @@ def test_per_command_help_start_documents_online_only(tmp_path):
     assert "LOFI_ONLINE_ONLY=1" in result.stdout
 
 
+def test_per_command_help_start_documents_offline_only_and_architecture(tmp_path):
+    result = run_lofi("start", tmp_path, f"127.0.0.1:{closed_port()}", extra_args=["help"])
+    assert result.returncode == 0
+    assert "--offline-only" in result.stdout
+    assert "LOFI_OFFLINE_ONLY=1" in result.stdout
+    assert "--cascade" in result.stdout
+    assert "--llmwithbackend" in result.stdout
+    assert "LOFI_ARCHITECTURE" in result.stdout
+
+
+def test_start_conflicting_mode_flags_refused(tmp_path):
+    result = run_lofi(
+        "start",
+        tmp_path,
+        f"127.0.0.1:{closed_port()}",
+        extra_args=["--online-only", "--offline-only"],
+    )
+    assert result.returncode == 1
+    assert "--online-only" in result.stderr and "--offline-only" in result.stderr
+
+
+def test_start_conflicting_architecture_flags_refused(tmp_path):
+    result = run_lofi(
+        "start",
+        tmp_path,
+        f"127.0.0.1:{closed_port()}",
+        extra_args=["--cascade", "--llmwithbackend"],
+    )
+    assert result.returncode == 1
+    assert "--cascade" in result.stderr and "--llmwithbackend" in result.stderr
+
+
+def test_start_headphones_refused_when_config_says_online_only(tmp_path):
+    # Decoy bot.pid so a wrong code path hits the already-running guard
+    # instead of launching the real stack.
+    decoy = subprocess.Popen(["sleep", "300"])
+    try:
+        (tmp_path / "bot.pid").write_text(str(decoy.pid))
+        result = run_lofi(
+            "start",
+            tmp_path,
+            f"127.0.0.1:{closed_port()}",
+            extra_args=["-t", "headphones"],
+            LOFI_ONLINE_ONLY="1",
+        )
+        assert result.returncode == 1
+        assert "browser bot" in result.stderr
+    finally:
+        decoy.kill()
+
+
+def test_start_offline_only_flag_overrides_online_only_config(tmp_path):
+    """--offline-only beats LOFI_ONLINE_ONLY=1 from a config file, so the
+    headphones refusal does not fire; the already-running guard proves we
+    got past it without launching anything."""
+    decoy = subprocess.Popen(["sleep", "300"])
+    try:
+        (tmp_path / "bot.pid").write_text(str(decoy.pid))
+        result = run_lofi(
+            "start",
+            tmp_path,
+            f"127.0.0.1:{closed_port()}",
+            extra_args=["-t", "headphones", "--offline-only"],
+            LOFI_ONLINE_ONLY="1",
+        )
+        assert result.returncode == 1
+        assert "already running" in result.stderr
+        assert "browser bot" not in result.stderr
+    finally:
+        decoy.kill()
+
+
 def test_models_command_removed(tmp_path):
     result = run_lofi("models", tmp_path, f"127.0.0.1:{closed_port()}")
     assert result.returncode == 1

@@ -78,6 +78,12 @@ def _serve_client_dist(app) -> None:
             CLIENT_DIST / "index.html", headers={"Cache-Control": "no-cache"}
         )
 
+    @app.get("/api/lofi-mode", include_in_schema=False)
+    async def lofi_mode():
+        # Which sessions this process serves; the client greys out the
+        # unavailable option in its mode picker.
+        return {"mode": config.serve_mode()}
+
     @app.get("/daily/{name}", include_in_schema=False)
     async def daily_bundle(name: str):
         # Both browser transports stand up a DailyMediaManager, and daily-js
@@ -138,7 +144,8 @@ def session_mode(runner_args) -> str:
     Offline is the default and the fallback for anything unrecognized. Online
     is refused up front when any of the three keys is missing, naming them all
     at once; in an `--online-only` process the refusal runs the other way and
-    a bare connect defaults to online.
+    a bare connect defaults to online. In an `--offline-only` process an
+    online connect is refused.
     """
     requested = _requested_mode(runner_args)
     if requested == ONLINE_MODE:
@@ -153,6 +160,12 @@ def session_mode(runner_args) -> str:
             "this bot was started with --online-only — the local stack is not "
             "ready, so an offline session cannot run. Pick ☁️ online on the "
             "page, or restart without --online-only."
+        )
+    if mode == ONLINE_MODE and config.offline_only():
+        raise RuntimeError(
+            "this bot was started with --offline-only — an online session is "
+            "refused. Pick 🔒 offline on the page, or restart without "
+            "--offline-only."
         )
     if mode == ONLINE_MODE:
         missing = config.missing_online_keys()
