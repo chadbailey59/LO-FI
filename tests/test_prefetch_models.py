@@ -30,18 +30,8 @@ def test_ollama_tags_dedupes_identical_tags(monkeypatch):
     monkeypatch.setenv("LOFI_LLM_MODEL", "same:1b")
     monkeypatch.setenv("LOFI_EMBED_MODEL", "same:1b")
     monkeypatch.setenv("LOFI_RAG_LLM_MODEL", "same:1b")
-    monkeypatch.delenv("LOFI_RAG_FAST_LLM_MODEL", raising=False)
 
     assert ollama_tags() == ["same:1b"]
-
-
-def test_ollama_tags_include_distinct_fast_analyst(monkeypatch):
-    monkeypatch.setenv("LOFI_LLM_MODEL", "front:7b")
-    monkeypatch.setenv("LOFI_EMBED_MODEL", "embed:1b")
-    monkeypatch.setenv("LOFI_RAG_LLM_MODEL", "analyst:8b")
-    monkeypatch.setenv("LOFI_RAG_FAST_LLM_MODEL", "tiny:1b")
-
-    assert ollama_tags() == ["front:7b", "embed:1b", "analyst:8b", "tiny:1b"]
 
 
 # --- Daily call-machine bundle (airgapped browser sessions) -------------------

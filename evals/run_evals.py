@@ -1208,7 +1208,6 @@ def build_json_payload(stage: str, reports: dict, git_sha: str | None = None) ->
             "stage": stage,
             "llm_model": config.llm_model(),
             "rag_llm_model": config.rag_llm_model(),
-            "rag_fast_llm_model": config.rag_fast_llm_model(),
             "architecture": config.architecture(),
             "pinned_today": PINNED_TODAY.isoformat(),
             "git_sha": git_sha,

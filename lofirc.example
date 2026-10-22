@@ -12,7 +12,6 @@ LOFI_MODEL_DIR=./models
 
 #LOFI_LLM_MODEL=qwen2.5:7b
 #LOFI_RAG_LLM_MODEL=qwen3:8b                 # records analyst backend; needs real API tool calls
-#LOFI_RAG_FAST_LLM_MODEL=                    # analyst fast-mode model; defaults to LOFI_RAG_LLM_MODEL
 
 #LOFI_OLLAMA_BASE_URL=http://localhost:11434/v1
 #LOFI_EMBED_MODEL=nomic-embed-text

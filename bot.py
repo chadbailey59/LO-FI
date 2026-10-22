@@ -107,12 +107,12 @@ def _configure_logging() -> None:
 
 def _ollama_models_to_check() -> list[str]:
     """Models that must be pulled in the local Ollama: the front model, plus
-    analyst (and fast analyst) when the architecture runs one."""
+    analyst when the architecture runs one."""
     models: list[str] = [config.llm_model()]
     if config.architecture() == "llmwithbackend":
-        for model in (config.rag_llm_model(), config.rag_fast_llm_model()):
-            if model not in models:
-                models.append(model)
+        model = config.rag_llm_model()
+        if model not in models:
+            models.append(model)
     return models
 
 
@@ -144,7 +144,7 @@ def _preflight_llm(base_url: str) -> None:
             sys.exit(
                 f"\n✖ LLM model '{wanted}' is not available in Ollama at {base_url}\n"
                 f"  Pull it:            ollama pull {wanted}\n"
-                f"  Or point LOFI_LLM_MODEL / LOFI_RAG_LLM_MODEL / LOFI_RAG_FAST_LLM_MODEL\n"
+                f"  Or point LOFI_LLM_MODEL / LOFI_RAG_LLM_MODEL\n"
                 f"  at one you have: {listed}\n"
             )
     logger.info(f"LLM preflight OK: {', '.join(to_check)} available at {base_url}")

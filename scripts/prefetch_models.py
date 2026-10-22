@@ -100,12 +100,11 @@ def daily_bundle_path(name: str) -> Path:
 
 def ollama_tags() -> list[str]:
     """Ollama tags the bot serves: pipeline LLM, embed model, and the records
-    analyst (+ fast-mode analyst), deduped."""
+    analyst, deduped."""
     tags = [
         config.llm_model(),
         config.embed_model(),
         config.rag_llm_model(),
-        config.rag_fast_llm_model(),
     ]
     return list(dict.fromkeys(tags))
 

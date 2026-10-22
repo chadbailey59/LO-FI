@@ -829,7 +829,6 @@ measured, byte-sensitive text — read them before editing.
 | `LOFI_LLM_MODEL` | `qwen2.5:7b` | Ollama tag for the conversation model (and, in `cascade`, the four retrieval tools). Same string `run_ollama.sh` pulls and the bot serves. Smaller machines: see [Choosing models](#choosing-models-for-your-hardware). |
 | `LOFI_ARCHITECTURE` | `llmwithbackend` | `llmwithbackend` (default) \| `cascade` — see [Two architectures](#two-architectures-one-env-var). Online sessions are always a cascade; this knob applies offline only. |
 | `LOFI_RAG_LLM_MODEL` | `qwen3:8b` | Ollama tag for the records analyst backend (`llmwithbackend`). Needs a model that emits real API tool calls — `nemotron-3-nano:4b` narrates them as JSON text and fails as the analyst backend. |
-| `LOFI_RAG_FAST_LLM_MODEL` | `$LOFI_RAG_LLM_MODEL` | Analyst model for the UI's ⚡ fast mode (thinking always off there). A *distinct* fast model needs `OLLAMA_MAX_LOADED_MODELS=4` so nothing gets evicted. |
 | `LOFI_PRACTICE_LANGUAGE` | *(empty = off)* | Online two-way practice: the session answers in that language whenever you speak it. Offline sessions ignore it. Lives in `.env` with the rest of the online config. |
 | `LOFI_OLLAMA_BASE_URL` | `http://localhost:11434/v1` | OpenAI-compatible Ollama endpoint (note the trailing `/v1`). The RAG embedder talks to the same host minus `/v1`. |
 | `LOFI_EMBED_MODEL` | `nomic-embed-text` | Ollama model tag for RAG embeddings. Pull it with `ollama pull nomic-embed-text`. |

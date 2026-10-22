@@ -509,24 +509,8 @@ def rag_index_dir() -> str:
 
 
 def rag_llm_model() -> str:
-    """Ollama tag for the records analyst (LOFI_RAG_LLM_MODEL, default
-    ``qwen3:8b`` — the measured-best analyst, wants ~16GB with the front).
-
-    The split backend needs a model that emits real API tool calls under the
-    worker's composed prompt — nemotron-3-nano:4b narrates them as JSON text
-    and answers nothing (measured 2026-10-16).
-    """
+    """LLM with backend needs a model that emits real API tool calls."""
     return _get("LOFI_RAG_LLM_MODEL", DEFAULT_RAG_LLM_MODEL)
-
-
-def rag_fast_llm_model() -> str:
-    """Ollama tag for the analyst's fast mode (LOFI_RAG_FAST_LLM_MODEL).
-
-    Defaults to rag_llm_model() — same weights, thinking off, zero extra RAM.
-    A distinct fast model needs OLLAMA_MAX_LOADED_MODELS=4 (front + analyst +
-    fast analyst + embedder all resident).
-    """
-    return _get("LOFI_RAG_FAST_LLM_MODEL", "").strip() or rag_llm_model()
 
 
 def practice_language() -> str:

@@ -208,7 +208,6 @@ def test_offline_connect_missing_models_lists_all(monkeypatch):
     monkeypatch.setenv("LOFI_ARCHITECTURE", "llmwithbackend")
     monkeypatch.setenv("LOFI_LLM_MODEL", "front-model:8b")
     monkeypatch.setenv("LOFI_RAG_LLM_MODEL", "analyst-model:27b")
-    monkeypatch.setenv("LOFI_RAG_FAST_LLM_MODEL", "analyst-model:27b")
     monkeypatch.setattr(bot_browser, "_ollama_model_ids", lambda url: {"someone-else:1b"})
     with pytest.raises(RuntimeError) as excinfo:
         bot_browser.vet_offline_session()
@@ -223,7 +222,6 @@ def test_offline_connect_with_every_model_pulled_is_allowed(monkeypatch):
     monkeypatch.setenv("LOFI_ARCHITECTURE", "llmwithbackend")
     monkeypatch.setenv("LOFI_LLM_MODEL", "front-model:8b")
     monkeypatch.setenv("LOFI_RAG_LLM_MODEL", "analyst-model:27b")
-    monkeypatch.setenv("LOFI_RAG_FAST_LLM_MODEL", "analyst-model:27b")
     monkeypatch.setattr(
         bot_browser,
         "_ollama_model_ids",
