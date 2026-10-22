@@ -1,11 +1,9 @@
-"""Tests for bot_browser's per-transport session wiring: MoQ keeps its
-subscriber-gated greeting; SmallWebRTC greets on client-connected and ends the
-session on disconnect."""
+"""Tests for bot_browser's per-transport session wiring: SmallWebRTC greets
+on client-connected and ends the session on disconnect."""
 
 import asyncio
 
 import bot_browser
-import moq_transport
 
 
 class SmallWebRTCRunnerArguments:  # same class NAME the runner uses
@@ -23,16 +21,6 @@ class RunnerArguments:
 def test_transport_kind_from_runner_args():
     assert bot_browser._transport_kind(SmallWebRTCRunnerArguments()) == "webrtc"
     assert bot_browser._transport_kind(WebSocketRunnerArguments()) == "websocket"
-    assert bot_browser._transport_kind(RunnerArguments()) == "moq"
-
-
-def test_moq_transport_omitted_when_moq_ffi_missing(monkeypatch):
-    # Native Windows: moq-ffi has no wheel, so MOQParams import fails —
-    # the bot must still start with websocket (+ webrtc when installed).
-    monkeypatch.setattr(moq_transport, "MOQParams", None)
-    params = bot_browser.build_transport_params()
-    assert "moq" not in params
-    assert "websocket" in params
 
 
 def test_websocket_transport_params_use_protobuf_serializer():

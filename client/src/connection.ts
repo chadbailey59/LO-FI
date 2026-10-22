@@ -2,16 +2,13 @@
 // and theirs share daily-js's call-instance singleton).
 import Daily from "@daily-co/daily-js";
 import { PipecatClient, RTVIEvent, type TransportState } from "@pipecat-ai/client-js";
-import { MoqTransport } from "@pipecat-ai/moq-transport";
 import { SmallWebRTCTransport } from "@pipecat-ai/small-webrtc-transport";
 import { WebSocketTransport } from "@pipecat-ai/websocket-transport";
 
-const RELAY_URL_COMES_FROM_START_RESPONSE = "";
-
-export type TransportName = "moq" | "webrtc" | "websocket";
+export type TransportName = "webrtc" | "websocket";
 export type SessionMode = "offline" | "online";
 
-const TRANSPORT_NAMES: TransportName[] = ["moq", "webrtc", "websocket"];
+const TRANSPORT_NAMES: TransportName[] = ["webrtc", "websocket"];
 
 // True when ?transport= names a real transport. That pin outranks the session
 // mode, so the mode toggle leaves the transport alone.
@@ -20,7 +17,7 @@ export function transportPinned(): boolean {
   return TRANSPORT_NAMES.includes(param as TransportName);
 }
 
-// A pinned ?transport=moq|webrtc|websocket wins; otherwise the session mode
+// A pinned ?transport=webrtc|websocket wins; otherwise the session mode
 // picks. Offline → websocket: pure TCP to localhost, the one transport that
 // connects with wi-fi off (airgapped, WebRTC's ICE gathers no usable candidate
 // — browsers exclude loopback and STUN is unreachable). It is also the only
@@ -46,9 +43,8 @@ const DAILY_BUNDLE_DIR = "/daily";
 // the transports touch it: the override lives in `properties.dailyConfig`, and
 // the transports' `startCamera({dailyConfig: …})` shallow-merges its own over
 // ours, so it only survives if the bundle is loaded by then. The transports
-// reuse this instance via `getCallInstance()`. MoQ uses no call object.
+// reuse this instance via `getCallInstance()`.
 export function preloadDailyCallMachine(transportName: TransportName): Promise<void> {
-  if (transportName === "moq") return Promise.resolve();
   const callObject =
     Daily.getCallInstance() ??
     Daily.createCallObject({
@@ -63,8 +59,7 @@ export function preloadDailyCallMachine(transportName: TransportName): Promise<v
 
 function buildTransport(transportName: TransportName) {
   if (transportName === "webrtc") return new SmallWebRTCTransport();
-  if (transportName === "websocket") return new WebSocketTransport();
-  return new MoqTransport({ relayUrl: RELAY_URL_COMES_FROM_START_RESPONSE });
+  return new WebSocketTransport();
 }
 
 export function createClient(
@@ -81,7 +76,7 @@ export function createClient(
 }
 
 // SmallWebRTC delivers bot audio as a media track the page must attach and
-// play; websocket and MoQ transports play through their own audio pipelines
+// play; the websocket transport plays through its own audio pipeline
 // and emit no track. Hidden autoplay element carries whichever track arrives
 // (Connect click precedes the track, so autoplay-with-sound is permitted).
 export function attachBotAudio(client: PipecatClient): void {

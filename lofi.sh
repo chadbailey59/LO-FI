@@ -6,8 +6,8 @@
 # (default .lofi/). An Ollama you started yourself is never touched.
 #
 # Usage:
-#   ./lofi.sh start [-t moq|headphones] [--online-only]
-#                                         # bring up Ollama if needed, then the bot (default: moq)
+#   ./lofi.sh start [-t browser|headphones] [--online-only]
+#                                         # bring up Ollama if needed, then the bot (default: browser)
 #                                         # --online-only: cloud-only sessions, no Ollama, no local models
 #   ./lofi.sh stop                        # stop only what lofi started (recorded PIDs)
 #   ./lofi.sh status [-v]                 # machine, ownership, bot, models (configured + downloaded), rag; -v adds full catalogs
@@ -46,7 +46,7 @@ load_env_defaults ".env"
 # where they belong.
 MISPLACED_SETTINGS=""
 if [[ -f .env ]]; then
-  MISPLACED_SETTINGS="$(grep -oE '^[[:space:]]*LOFI_[A-Za-z0-9_]+' .env 2>/dev/null | tr -d ' ' | paste -sd, - || true)"
+  MISPLACED_SETTINGS="$(grep -oE '^[[:space:]]*LOFI_[A-Za-z0-9_]+' .env 2>/dev/null | tr -d ' ' | grep -vE '^LOFI_(ONLINE_|PUBLIC_RAG_|PRACTICE_LANGUAGE$)' | paste -sd, - || true)"
 fi
 LOFI_REPO_ROOT="$REPO"
 # shellcheck source=scripts/model_dir.sh
@@ -119,7 +119,7 @@ cmd_index_rag() {
 }
 
 cmd_start() {
-  local transport="moq" online_only=0
+  local transport="browser" online_only=0
   while [[ $# -gt 0 ]]; do
     case "$1" in
       -t|--transport) transport="${2:-}"; shift 2 || shift ;;
@@ -129,8 +129,8 @@ cmd_start() {
     esac
   done
   case "$transport" in
-    moq|headphones) ;;
-    *) echo "lofi: unknown transport '$transport' — valid: moq (default), headphones" >&2; exit 1 ;;
+    browser|headphones) ;;
+    *) echo "lofi: unknown transport '$transport' — valid: browser (default), headphones" >&2; exit 1 ;;
   esac
   # The local-audio bot has no online stack to run.
   if [[ "$online_only" == 1 && "$transport" == "headphones" ]]; then
@@ -140,7 +140,7 @@ cmd_start() {
   mkdir -p "$STATE_DIR"
 
   if [[ -n "$MISPLACED_SETTINGS" ]]; then
-    echo "start: settings belong in .lofirc now — .env holds only OPENAI_API_KEY, DEEPGRAM_API_KEY, CARTESIA_API_KEY; move from .env: $MISPLACED_SETTINGS (they still apply)" >&2
+    echo "start: offline settings belong in .lofirc — .env holds the keys and online-session config; move from .env: $MISPLACED_SETTINGS (they still apply)" >&2
   fi
 
   local bot_pid
@@ -180,9 +180,9 @@ cmd_start() {
   ln -sf "$bot_log" "$STATE_DIR/bot.log"
   session_logs | tail -n +11 | xargs rm -f
   case "$transport" in
-    moq)
+    browser)
       # No -t pin: the runner then serves every installed browser transport
-      # (SmallWebRTC, MoQ, websocket) and the client picks per session via
+      # (SmallWebRTC, websocket) and the client picks per session via
       # /start — the webrtc → websocket fallback path needs this.
       nohup uv run python bot_browser.py --host localhost --port "$LOFI_WEB_PORT" >"$bot_log" 2>&1 &
       ;;
@@ -196,7 +196,7 @@ cmd_start() {
   echo "start: bot starting (pid $(recorded_pid bot), log → ${bot_log#"$REPO"/})"
   echo "start: stop everything lofi started with ./lofi.sh stop"
 
-  if [[ "$transport" == "moq" ]]; then
+  if [[ "$transport" == "browser" ]]; then
     for _ in $(seq 1 120); do
       curl -sf --max-time 2 "$WEB_URL/" -o /dev/null 2>/dev/null && break
       pid_alive "$(recorded_pid bot)" || { echo "start: bot exited early — see ${bot_log#"$REPO"/}" >&2; exit 1; }
@@ -284,9 +284,9 @@ cmd_get_debug_log() {
 cmd_help() {
   case "$1" in
     start)
-      echo "usage: ./lofi.sh start [-t moq|headphones] [--online-only]"
-      echo "  -t, --transport   moq (browser bot, the default — serves websocket (offline"
-      echo "                    sessions), SmallWebRTC (online sessions) and MoQ)"
+      echo "usage: ./lofi.sh start [-t browser|headphones] [--online-only]"
+      echo "  -t, --transport   browser (the default — serves websocket for offline"
+      echo "                    sessions and SmallWebRTC for online sessions)"
       echo "                    headphones (local mic/speakers via PyAudio — wear headphones)"
       echo "  --online-only     serve online sessions only (LOFI_ONLINE_ONLY=1): no Ollama,"
       echo "                    no local model preflights; an offline connect is refused"
@@ -348,8 +348,8 @@ cmd_status() {
   pid="$(recorded_pid bot)"
   if pid_alive "$pid"; then
     transport="$(cat "$STATE_DIR/bot.transport" 2>/dev/null || echo "?")"
-    if [[ "$transport" == "moq" ]]; then
-      echo "bot      running (pid $pid), transport: moq, $WEB_URL"
+    if [[ "$transport" == "browser" ]]; then
+      echo "bot      running (pid $pid), transport: browser, $WEB_URL"
     else
       echo "bot      running (pid $pid), transport: $transport"
     fi

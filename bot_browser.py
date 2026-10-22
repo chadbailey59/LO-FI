@@ -4,7 +4,7 @@ Serves the lofi client (client/dist/) and offers three transports. The client
 picks by session mode: WebSocket for offline (pure TCP — connects with wi-fi
 off, and the only path that crosses Windows↔WSL2), SmallWebRTC for online
 (needs `uv sync --extra webrtc`; falls back to WebSocket after a failed
-connect). MoQ/QUIC is opt-in (`?transport=moq`, moq_transport.py).
+connect).
 
 Run:
     ./lofi.sh start
@@ -34,7 +34,6 @@ from pipecat.workers.runner import WorkerRunner
 
 import store
 from bot import _configure_logging, _ollama_models_to_check, _preflight_local
-from moq_transport import moq_transport_params, register_moq_handlers
 from pipeline import ONLINE_MODE, build_pipeline, public_rag_summary
 from scripts.prefetch_models import (
     DAILY_BUNDLE_NAMES,
@@ -58,22 +57,10 @@ def _serve_client_dist(app) -> None:
     hardcodes the pipecat-ai-prebuilt UI, now uninstalled — it logs one startup
     error about that and mounts nothing). Routes registered before `main()` win.
 
-    The COOP/COEP headers make the page cross-origin isolated, which unlocks
-    SharedArrayBuffer: the MoQ player then uses its one-second atomic audio
-    ring instead of the 160ms postMessage fallback that drops the start of
-    every bot utterance. Everything the page loads is same-origin, so the
-    isolation costs nothing.
     """
     from fastapi import HTTPException
     from fastapi.responses import FileResponse, RedirectResponse
     from fastapi.staticfiles import StaticFiles
-
-    @app.middleware("http")
-    async def cross_origin_isolation(request, call_next):
-        response = await call_next(request)
-        response.headers["Cross-Origin-Opener-Policy"] = "same-origin"
-        response.headers["Cross-Origin-Embedder-Policy"] = "require-corp"
-        return response
 
     app.mount("/assets", StaticFiles(directory=CLIENT_DIST / "assets"), name="client-assets")
 
@@ -241,9 +228,8 @@ def _lofi_config_message(mode: str = OFFLINE_MODE) -> dict:
 def build_transport_params() -> dict:
     """Transports the runner offers via /start: SmallWebRTC when aiortc is
     installed (uv sync --extra webrtc) — what online sessions pick; WebSocket
-    always — what offline sessions pick, and webrtc's fallback; the QUIC entry
-    when its bindings are available on this platform."""
-    params = moq_transport_params()
+    always — what offline sessions pick, and webrtc's fallback."""
+    params = {}
 
     # Plain WebSocket (pure TCP): crosses any boundary that forwards TCP,
     # including Windows↔WSL2 where both QUIC and WebRTC's UDP media (and
@@ -297,13 +283,9 @@ GREETING_SETTLE_SECS = 0.5
 def _transport_kind(runner_args) -> str:
     """Which transport a runner-args object selects: /api/offer hands
     SmallWebRTCRunnerArguments to bot(), /ws-client hands
-    WebSocketRunnerArguments; anything else is moq serve mode."""
+    WebSocketRunnerArguments."""
     name = type(runner_args).__name__
-    if name == "SmallWebRTCRunnerArguments":
-        return "webrtc"
-    if name == "WebSocketRunnerArguments":
-        return "websocket"
-    return "moq"
+    return "webrtc" if name == "SmallWebRTCRunnerArguments" else "websocket"
 
 
 def _greeting(mode: str) -> str:
@@ -333,30 +315,13 @@ async def run_bot(
     built = build_pipeline(transport, mode=mode)
     worker = PipelineWorker(built.pipeline, params=PipelineParams())
 
-    client_ready = asyncio.Event()
-    mic_subscribed = asyncio.Event()
-
     @worker.rtvi.event_handler("on_client_ready")
     async def on_client_ready(rtvi):
-        client_ready.set()
         logger.info("RTVI client ready — sending lofi-config")
         await rtvi.send_server_message(_lofi_config_message(mode))
 
-    if _transport_kind(runner_args) in ("webrtc", "websocket"):
-        _register_webrtc_handlers(transport, worker, mode)
-    else:
-        register_moq_handlers(
-            transport,
-            worker,
-            client_ready,
-            mic_subscribed,
-            _greeting(mode),
-            GREETING_SETTLE_SECS,
-        )
+    _register_webrtc_handlers(transport, worker, mode)
 
-    # The moq input transport auto-connects to the relay when the pipeline
-    # starts; we disconnect explicitly on shutdown. SmallWebRTCTransport has no
-    # disconnect() — its peer connection closes itself.
     runner = WorkerRunner(handle_sigint=runner_args.handle_sigint)
     try:
         await runner.add_workers(worker)

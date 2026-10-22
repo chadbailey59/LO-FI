@@ -836,7 +836,7 @@ dependencies = [
     { name = "fastapi" },
     { name = "loguru" },
     { name = "num2words" },
-    { name = "pipecat-ai", extra = ["deepgram", "kokoro", "moq", "openai", "webrtc", "whisper"] },
+    { name = "pipecat-ai", extra = ["deepgram", "kokoro", "openai", "webrtc", "whisper"] },
     { name = "pipecat-ai", extra = ["mlx-whisper"], marker = "platform_machine == 'arm64' and sys_platform == 'darwin'" },
     { name = "pypdf" },
     { name = "python-dotenv" },
@@ -867,7 +867,7 @@ requires-dist = [
     { name = "fastapi", specifier = ">=0.115.6,<1" },
     { name = "loguru", specifier = ">=0.7.3" },
     { name = "num2words", specifier = ">=0.5.14" },
-    { name = "pipecat-ai", extras = ["cartesia", "deepgram", "kokoro", "moq", "openai", "silero", "webrtc", "whisper"], specifier = ">=1.13.0,<1.14" },
+    { name = "pipecat-ai", extras = ["cartesia", "deepgram", "kokoro", "openai", "silero", "webrtc", "whisper"], specifier = ">=1.13.0,<1.14" },
     { name = "pipecat-ai", extras = ["mlx-whisper"], marker = "platform_machine == 'arm64' and sys_platform == 'darwin'" },
     { name = "pipecat-ai", extras = ["moonshine"], marker = "extra == 'moonshine'" },
     { name = "pipecat-ai", extras = ["piper"], marker = "extra == 'piper'" },
@@ -1033,30 +1033,6 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/56/b3/ca8c6f3eb47498208e92094d68e3dc2a0ce50213fdf980e212f293872455/moonshine_voice-0.1.5-py3-none-manylinux_2_34_aarch64.whl", hash = "sha256:fd9fa38ab58c6a8e64eb43b81b0f491138159c7ce45584bb0736ed7efa539766", size = 18634500, upload-time = "2026-08-24T21:15:04.032Z" },
     { url = "https://files.pythonhosted.org/packages/a9/9d/228f738b48e0e7cc1de97c3f842b5470c6a3c5f7a0bffbf13c3d00eefb87/moonshine_voice-0.1.5-py3-none-manylinux_2_34_x86_64.whl", hash = "sha256:1ed9e0ccf94be4845d69e7fa862dcf4c8b5801a758796966494c694f48184496", size = 19897307, upload-time = "2026-08-24T21:06:47.113Z" },
     { url = "https://files.pythonhosted.org/packages/ea/05/ad3457baa56170a13829c98327598a4d99d6cd4bdff8ae59df4c47ebdd11/moonshine_voice-0.1.5-py3-none-win_amd64.whl", hash = "sha256:7fc9a84e827360ddb85c2735f44a1502c5575c27dcb476a2555646cd20a70e9d", size = 16542073, upload-time = "2026-08-24T23:17:38.555Z" },
-]
-
-[[package]]
-name = "moq-ffi"
-version = "0.4.15"
-source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/80/4e/116ad1e19624a6df7e0ce042b8d0544f880bc18e49d6b1629e91d31dd891/moq_ffi-0.4.15.tar.gz", hash = "sha256:f6a9939b2507d288b2c24fe089779b6a4e40199cddba4a199abd0cc34f6c6e4b", size = 4293380, upload-time = "2026-10-14T20:19:38.498Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/b5/2c/42fe7be7e2f5446c7b0c900f636b4ad376f9005ea9ec7e3f688a4c9cf344/moq_ffi-0.4.15-py3-none-macosx_11_0_arm64.whl", hash = "sha256:6fd1c3d2abc7a86d5bd306ec172593f760a827b5620dd845c7a96a2a884a6fe4", size = 10044447, upload-time = "2026-10-14T20:19:27.922Z" },
-    { url = "https://files.pythonhosted.org/packages/b5/11/09aa2510072b86499308df7fd39385b4cf7f00b514c0c22d0011e5823f3a/moq_ffi-0.4.15-py3-none-manylinux_2_28_aarch64.whl", hash = "sha256:4963ab713505db059326684f9958e9b8527102a647abed1f27e868e8b9007acd", size = 12165780, upload-time = "2026-10-14T20:19:30.724Z" },
-    { url = "https://files.pythonhosted.org/packages/3f/5e/fdafd40f8b66b17bf1aa82de6a5f9cca406ffd5e6dee31b0a55a204cfe6b/moq_ffi-0.4.15-py3-none-manylinux_2_28_x86_64.whl", hash = "sha256:70fe8149d8270a151e5aef018ad9f23df83ec47bb2cdc117a9c6742a20976404", size = 11688906, upload-time = "2026-10-14T20:19:33.581Z" },
-    { url = "https://files.pythonhosted.org/packages/ec/df/792f95fdf32f81f4f4eead796e54b7562950deb2d9556336ff2abf5172a9/moq_ffi-0.4.15-py3-none-win_amd64.whl", hash = "sha256:960c269a8651624193a6750cf13d09799a01ecd18bb8aa0638f667f0a2a5aeee", size = 9223229, upload-time = "2026-10-14T20:19:36.226Z" },
-]
-
-[[package]]
-name = "moq-rs"
-version = "0.5.1"
-source = { registry = "https://pypi.org/simple" }
-dependencies = [
-    { name = "moq-ffi" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/d6/1e/997b7190c6f303505d551d35044226e3e8a903fdfa7f46fc440ea907ea6c/moq_rs-0.5.1.tar.gz", hash = "sha256:e4ef5514868824fa645eeff5a3c3f6206eb2ce5029d2ace8a6934bb43a96f067", size = 41309, upload-time = "2026-09-26T20:01:23.325Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/13/3f/3d10ecf58b1409e7189186e20ffdb377b51cb074a6286c24edfd0b3f4046/moq_rs-0.5.1-py3-none-any.whl", hash = "sha256:156b7f8a4cb0c613224272937a20592d67d7f29b79f4f3cff80f7e040b88a47a", size = 31160, upload-time = "2026-09-26T20:01:22.011Z" },
 ]
 
 [[package]]
@@ -1378,11 +1354,6 @@ mlx-whisper = [
 ]
 moonshine = [
     { name = "moonshine-voice" },
-]
-moq = [
-    { name = "cryptography", version = "48.0.1", source = { registry = "https://pypi.org/simple" }, marker = "platform_machine == 'x86_64' and sys_platform == 'darwin'" },
-    { name = "cryptography", version = "49.0.0", source = { registry = "https://pypi.org/simple" }, marker = "platform_machine != 'x86_64' or sys_platform != 'darwin'" },
-    { name = "moq-rs" },
 ]
 openai = [
     { name = "httpx", extra = ["http2"] },

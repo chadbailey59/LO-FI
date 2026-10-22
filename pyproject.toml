@@ -22,7 +22,7 @@ dependencies = [
     # aiortc 1.15.0 is a pure-Python wheel (py3-none-any) and its binary deps
     # all cover mac-arm64 / manylinux-x86_64 / win-amd64 (av cp312-abi3,
     # pylibsrtp cp310-abi3, aioice pure-python) — verified on PyPI 2026-10-21.
-    "pipecat-ai[cartesia,deepgram,kokoro,moq,openai,silero,webrtc,whisper]>=1.13.0,<1.14",
+    "pipecat-ai[cartesia,deepgram,kokoro,openai,silero,webrtc,whisper]>=1.13.0,<1.14",
     # MLX ships no Intel-mac wheels — Whisper-MLX is Apple Silicon only; other
     # platforms default to faster-whisper (CPU) instead (see services.py).
     "pipecat-ai[mlx-whisper]; sys_platform == 'darwin' and platform_machine == 'arm64'",

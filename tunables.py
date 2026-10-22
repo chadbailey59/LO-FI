@@ -14,7 +14,7 @@ What deliberately lives elsewhere:
   - retrieval tool JSON schemas and their per-parameter descriptions —
     `tools.PARAMS` (they embed enums computed from `retrieval.COLUMN_SQL`,
     `OPERATORS`, `ORDER_SQL`; schema-structural, not tunable prose)
-  - plumbing knobs: URLs, cache paths, VAD, chunking, MoQ, timeouts, log
+  - plumbing knobs: URLs, cache paths, VAD, chunking, timeouts, log
     level — `config.py`
 
 Env vars: the model defaults in section 1 are what `config.py`'s getters fall
@@ -124,7 +124,7 @@ OFFLINE_INTRO = (
     "\n"
 )
 
-# Identity paragraph for the online-session front prompt (Task 5).
+# Identity paragraph for the online-session front prompt.
 ONLINE_INTRO = (
     "You are a private financial thinking partner. This session is running in online "
     "mode: the conversation and the public reference documents go to cloud services, "
@@ -526,5 +526,5 @@ QUESTION_PREFIX = "\nQuestion: "
 # ===========================================================================
 # Retrieval tool JSON schemas + per-parameter descriptions: `tools.PARAMS`
 # (enums computed from retrieval.COLUMN_SQL / OPERATORS / ORDER_SQL).
-# Plumbing knobs — URLs, model dir, VAD, chunking, MoQ, timeouts, log level,
+# Plumbing knobs — URLs, model dir, VAD, chunking, timeouts, log level,
 # greeting delay: `config.py`.

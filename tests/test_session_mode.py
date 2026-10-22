@@ -41,20 +41,12 @@ def webrtc_args(body=None):
     return SmallWebRTCRunnerArguments(webrtc_connection=object(), body=body)
 
 
-def moq_args():
-    from pipecat.runner.types import RunnerArguments
-
-    return RunnerArguments()
-
-
 def test_session_mode_from_query():
     assert bot_browser.session_mode(ws_args(mode="online")) == "online"
     assert bot_browser.session_mode(ws_args(mode="offline")) == "offline"
     assert bot_browser.session_mode(ws_args()) == "offline"
     assert bot_browser.session_mode(ws_args(mode="ONLINE")) == "online"
     assert bot_browser.session_mode(ws_args(mode="banana")) == "offline"
-    # MoQ serve mode carries no per-connection request — always offline.
-    assert bot_browser.session_mode(moq_args()) == "offline"
 
 
 def test_session_mode_from_webrtc_request_data():
@@ -90,7 +82,6 @@ def test_online_only_rejects_offline_connect(monkeypatch):
 def test_online_only_defaults_a_bare_connect_to_online(monkeypatch):
     monkeypatch.setenv("LOFI_ONLINE_ONLY", "1")
     assert bot_browser.session_mode(ws_args()) == "online"
-    assert bot_browser.session_mode(moq_args()) == "online"
 
 
 def test_online_only_flag_parsing(monkeypatch):

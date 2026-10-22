@@ -182,14 +182,27 @@ def _dotenv_keys(path: Path) -> list[str]:
     return keys
 
 
-def legacy_settings_in_env(root: Path | None = None) -> list[str]:
-    """``LOFI_*`` settings sitting in ``.env``, which now holds keys only.
+ONLINE_ENV_PREFIXES = ("LOFI_ONLINE_", "LOFI_PUBLIC_RAG_")
+ONLINE_ENV_NAMES = ("LOFI_PRACTICE_LANGUAGE",)
 
-    Both files are dotenv loads, so the values still apply — the names are
-    reported so one startup line can point them at ``.lofirc``.
+
+def legacy_settings_in_env(root: Path | None = None) -> list[str]:
+    """Offline ``LOFI_*`` settings sitting in ``.env``.
+
+    ``.env`` holds the online-session config: the three keys plus
+    ``LOFI_ONLINE_*`` / ``LOFI_PUBLIC_RAG_*`` / ``LOFI_PRACTICE_LANGUAGE``.
+    Everything else belongs in ``.lofirc``; both files are dotenv loads, so
+    the values still apply — the names are reported so one startup line can
+    point them at ``.lofirc``.
     """
     root = Path(root) if root is not None else REPO_ROOT
-    return [k for k in _dotenv_keys(root / KEYS_FILE_NAME) if k.startswith("LOFI_")]
+    return [
+        k
+        for k in _dotenv_keys(root / KEYS_FILE_NAME)
+        if k.startswith("LOFI_")
+        and not k.startswith(ONLINE_ENV_PREFIXES)
+        and k not in ONLINE_ENV_NAMES
+    ]
 
 
 def legacy_env_keys() -> list[str]:
@@ -238,8 +251,6 @@ DEFAULT_RAG_CHUNK_TOKENS = 500
 DEFAULT_RAG_CHUNK_OVERLAP = 50
 DEFAULT_STATE_DIR = ".lofi"
 DEFAULT_GREETING_DELAY_SECS = 1.0
-DEFAULT_MOQ_SUBSCRIBER_TIMEOUT = 15.0
-DEFAULT_MOQ_AUDIO_AHEAD_MS = 500
 DEFAULT_LOG_LEVEL = "DEBUG"
 
 # --- Silero VAD tuning ------------------------------------------------------
@@ -613,29 +624,6 @@ def greeting_delay_secs() -> float:
     """
     raw = os.getenv("LOFI_GREETING_DELAY_SECS", "").strip()
     return float(raw) if raw else DEFAULT_GREETING_DELAY_SECS
-
-
-def moq_subscriber_timeout() -> float:
-    """Max seconds the MoQ bot holds its greeting for the browser's audio
-    subscription (LOFI_MOQ_SUBSCRIBER_TIMEOUT).
-
-    MoQ is live media with no replay — a greeting spoken before the browser
-    subscribes is silently dropped. On timeout the bot greets anyway.
-    """
-    return _get_float("LOFI_MOQ_SUBSCRIBER_TIMEOUT", DEFAULT_MOQ_SUBSCRIBER_TIMEOUT)
-
-
-def moq_audio_ahead_ms() -> int:
-    """Max milliseconds of bot audio written ahead of real time over MoQ
-    (LOFI_MOQ_AUDIO_AHEAD_MS).
-
-    TTS generates faster than real time; without a tight cap the whole
-    utterance bursts onto the wire at once and overflows the browser's
-    playback ring buffer, which drops the oldest unplayed samples — the
-    start of every bot turn. Must stay well under the browser ring's
-    one-second capacity; raise only if playback stutters mid-utterance.
-    """
-    return _get_int("LOFI_MOQ_AUDIO_AHEAD_MS", DEFAULT_MOQ_AUDIO_AHEAD_MS)
 
 
 def log_level() -> str:

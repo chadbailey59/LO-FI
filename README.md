@@ -284,7 +284,7 @@ carries pubs only. Drop in whatever reference documents fit your life
 | Language model | `qwen2.5:7b` front + `qwen3:8b` records analyst *(defaults)* via **Ollama** | Local, OpenAI-compatible endpoint; env-configurable. The llmwithbackend analyst (`LOFI_RAG_LLM_MODEL`) answers from your records. |
 | Text-to-speech | `KokoroTTSService` *(default)* | Natural local neural voice (kokoro-onnx). Alternative via `LOFI_TTS_ENGINE`: `piper` |
 | Turn-taking | Silero VAD | Barge-in / interruptions, fully local (bundled with Pipecat) |
-| Transport | `FastAPIWebsocketTransport` offline / `SmallWebRTCTransport` online *(per session mode)* | free echo cancellation via `getUserMedia`; websocket is pure TCP so offline works airgapped, webrtc auto-falls back to it. `?transport=moq` opts into media-over-QUIC |
+| Transport | `FastAPIWebsocketTransport` offline / `SmallWebRTCTransport` online *(per session mode)* | free echo cancellation via `getUserMedia`; websocket is pure TCP so offline works airgapped, webrtc auto-falls back to it |
 | Alternative transport | `LocalAudioTransport` | PyAudio mic + speaker I/O (requires headphones) — see [echo cancellation](#how-do-you-solve-a-problem-like-echo-cancellation) |
 | Online session *(opt-in)* | `DeepgramSTTService` + `OpenAILLMService` + `CartesiaTTSService` | Picked per session in the browser; retrieves from the public index only — see [Online sessions](#online-sessions-the-other-half-of-the-toggle) |
 
@@ -321,8 +321,6 @@ outranks the mode:
 - **SmallWebRTC** (`?transport=webrtc`, *online default*): UDP media over
   loopback, in the base install (aiortc ships a pure-Python wheel). Needs UDP
   to reach the bot — so not across Windows↔WSL2, and not with wi-fi off.
-- **MoQ over QUIC** (`?transport=moq`): media-over-QUIC via WebTransport,
-  which Safari and Firefox don't ship yet (Chrome/Edge only).
 
 ### Use headphones (the CLI front-end)
 
@@ -361,12 +359,9 @@ network event in an offline session's entire lifecycle is the one-time,
 anonymous model download in Setup step 2.
 
 After the prefetch, an airgapped websocket or WebRTC session makes **zero**
-external requests. Two dead branches survive in the built client and neither
-blocks anything: daily-js ships a vendored Sentry client
-(`o77906.ingest.sentry.io`) for its own error telemetry, which fails silently
-offline; and the MoQ path's libav.js loader carries a `cdn.jsdelivr.net`
-fallback that the bundled local `libav-opus-*` asset preempts (MoQ is opt-in
-anyway).
+external requests. One dead branch survives in the built client and blocks
+nothing: daily-js ships a vendored Sentry client (`o77906.ingest.sentry.io`)
+for its own error telemetry, which fails silently offline.
 
 The one exception is the **online session mode**, which is opt-in per session
 and needs three keys. Those live in `.env` — three names, nothing else — and
@@ -601,8 +596,6 @@ copy instead.
 Two routes, both verified end-to-end on real hardware:
 
 - **Native (simplest):** PowerShell + uv, no Linux layer, full machine RAM.
-  MoQ isn't available natively (its `moq-ffi` library ships no Windows
-  wheels) — use the WebSocket transport.
 - **WSL2:** the bot runs in Linux, your browser/mic/speakers stay on Windows.
   You get the bash tooling (`./lofi.sh`, `./configure.sh`), at the cost of
   installing WSL and a default RAM cap.
@@ -698,9 +691,8 @@ records-accuracy wants the 16 GB tier — the
 (`lofi.sh` detects WSL and skips its browser auto-open — the right browser is
 on the Windows side.) Then, in **a browser on Windows**, open the page with
 **`?transport=websocket`** — WebSocket is the only transport that works here:
-MoQ's QUIC and WebRTC's media are both UDP, which never crosses the
-Windows↔WSL boundary (verified in NAT and mirrored modes, Hyper-V firewall
-open, raw-UDP probe). The WebSocket transport is pure TCP and crosses the
+WebRTC's media is UDP, which never crosses the Windows↔WSL boundary (verified
+in NAT and mirrored modes, Hyper-V firewall open, raw-UDP probe). The WebSocket transport is pure TCP and crosses the
 boundary the same way the web page itself does. Offline sessions default to
 websocket anyway; an **online** session defaults to `webrtc` and falls back
 to websocket on its own, but that costs ~15–30 s of failing first — so pin
@@ -710,8 +702,7 @@ the param and the mode toggle leaves the transport alone:
 http://localhost:7860/?transport=websocket
 ```
 
-Then click **Connect**, allow the mic, talk. Don't force `?transport=moq`
-here either.
+Then click **Connect**, allow the mic, talk.
 
 ### Troubleshooting
 
@@ -757,16 +748,16 @@ Two files, one job each, both gitignored:
 
 | File | Holds | Template |
 |---|---|---|
-| `.lofirc` | every `LOFI_*` setting — model tags, voices, engines, paths, VAD, ports | [`lofirc.example`](lofirc.example) |
-| `.env` | exactly three names: `OPENAI_API_KEY`, `DEEPGRAM_API_KEY`, `CARTESIA_API_KEY` | [`env.example`](env.example) |
+| `.lofirc` | the offline/local settings — model tags, voices, engines, paths, VAD, ports | [`lofirc.example`](lofirc.example) |
+| `.env` | the online session: the three keys (`OPENAI_API_KEY`, `DEEPGRAM_API_KEY`, `CARTESIA_API_KEY`) plus any `LOFI_ONLINE_*` / `LOFI_PUBLIC_RAG_*` / `LOFI_PRACTICE_LANGUAGE` overrides | [`env.example`](env.example) |
 
 ```bash
 cp lofirc.example .lofirc     # settings — optional, the bot runs without it
-cp env.example .env           # keys — only if you want online sessions
+cp env.example .env           # keys + online config — only if you want online sessions
 ```
 
 `LOFI_ENV_FILE` repoints the settings file (`config.py`, `lofi.sh` and
-`configure.sh` all honor it); the keys file is always `.env` at the repo root.
+`configure.sh` all honor it); the online file is always `.env` at the repo root.
 
 #### Where a setting comes from
 
@@ -777,7 +768,8 @@ For any `LOFI_*` knob, first hit wins:
 2. **`.lofirc`** — your persistent settings. Loaded as defaults, so it never
    overrides the line above.
 3. **`.env`** — loaded next, same no-override rule, so `.lofirc` wins for a
-   name in both. Put nothing but the three keys here.
+   name in both. Keys and online-session config live here; anything else is
+   flagged at startup with a pointer to `.lofirc`.
 4. **`tunables.py`** — the default baked into the code, and the end of the
    ladder for models and voices.
 
@@ -786,8 +778,9 @@ prompt, tool description and canned line lives in
 [`tunables.py`](tunables.py), and editing that file IS the mechanism. Landmine
 comments mark measured, byte-sensitive text.
 
-A `LOFI_*` setting found in `.env` still applies, and startup prints one line
-per stray name asking you to move it to `.lofirc`. The same startup check
+An offline `LOFI_*` setting found in `.env` still applies, and startup prints
+one line per stray name asking you to move it to `.lofirc` (online-session
+names belong in `.env` and are not flagged). The same startup check
 names any unprefixed settings (`STT_ENGINE`, `LLM_MODEL`, …) — the only
 unprefixed names the repo reads are the four external ones below.
 
@@ -819,7 +812,7 @@ measured, byte-sensitive text — read them before editing.
 | `LOFI_ARCHITECTURE` | `llmwithbackend` | `llmwithbackend` (default) \| `cascade` — see [Two architectures](#two-architectures-one-env-var). Online sessions are always a cascade; this knob applies offline only. |
 | `LOFI_RAG_LLM_MODEL` | `qwen3:8b` | Ollama tag for the records analyst backend (`llmwithbackend`). Needs a model that emits real API tool calls — `nemotron-3-nano:4b` narrates them as JSON text and fails as the analyst backend. |
 | `LOFI_RAG_FAST_LLM_MODEL` | `$LOFI_RAG_LLM_MODEL` | Analyst model for the UI's ⚡ fast mode (thinking always off there). A *distinct* fast model needs `OLLAMA_MAX_LOADED_MODELS=4` so nothing gets evicted. |
-| `LOFI_PRACTICE_LANGUAGE` | *(empty = off)* | Online two-way practice: the session answers in that language whenever you speak it. Offline sessions ignore it. |
+| `LOFI_PRACTICE_LANGUAGE` | *(empty = off)* | Online two-way practice: the session answers in that language whenever you speak it. Offline sessions ignore it. Lives in `.env` with the rest of the online config. |
 | `LOFI_OLLAMA_BASE_URL` | `http://localhost:11434/v1` | OpenAI-compatible Ollama endpoint (note the trailing `/v1`). The RAG embedder talks to the same host minus `/v1`. |
 | `LOFI_EMBED_MODEL` | `nomic-embed-text` | Ollama model tag for RAG embeddings. Pull it with `ollama pull nomic-embed-text`. |
 | `LOFI_RAG_DATA_DIR` | `./data` | The documents to index (`.txt`/`.md`/`.pdf`/`.csv`) — put files here, then `./lofi.sh index-rag`. Absolute, `~`, or relative-to-repo. |
@@ -846,8 +839,6 @@ measured, byte-sensitive text — read them before editing.
 | `LOFI_GREETING` | *"Hi. I'm your private, offline financial thinking partner…"* | Opening line spoken on startup in an offline session. |
 | `LOFI_ONLINE_GREETING` | *"Hi. I'm your online financial thinking partner…"* | Opening line for an online session — it offers the tax documents and language practice, and never claims privacy it doesn't have. |
 | `LOFI_GREETING_DELAY_SECS` | `1.0` | Delay before the greeting (lets the audio-out stream spin up). |
-| `LOFI_MOQ_SUBSCRIBER_TIMEOUT` | `15.0` | Max seconds the MoQ bot holds its greeting for the browser's audio subscription (MoQ has no replay — speaking earlier drops the audio). On timeout it greets anyway. |
-| `LOFI_MOQ_AUDIO_AHEAD_MS` | `500` | Max milliseconds of bot audio written ahead of real time over MoQ. TTS runs faster than real time; uncapped bursts overflow the browser's playback ring buffer and clip the start of every bot turn. Raise only if playback stutters mid-utterance. |
 | `LOFI_LOG_LEVEL` | `DEBUG` | Loguru level for stderr. `DEBUG` surfaces each service's activity — handy for the offline check. |
 | `LOFI_WEB_PORT` | `7860` | Port `bot_browser.py` serves on (used by `./lofi.sh start`). |
 | `LOFI_OPEN_BROWSER` | `1` | `0` stops `./lofi.sh start` auto-opening the page. Auto-open is always skipped on WSL (the right browser is on the Windows side). |

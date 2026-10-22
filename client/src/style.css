@@ -46,14 +46,6 @@ button {
   opacity: 0.75;
 }
 
-#webtransport-banner {
-  margin-top: 1rem;
-  padding: 0.6rem 0.75rem;
-  border: 1px solid color-mix(in srgb, currentColor 35%, transparent);
-  border-radius: 4px;
-  background: color-mix(in srgb, currentColor 8%, transparent);
-}
-
 #online-banner {
   margin-top: 1rem;
   padding: 0.75rem 1rem;

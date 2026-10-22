@@ -248,7 +248,7 @@ def test_per_command_help_configure(tmp_path):
 def test_per_command_help_start(tmp_path):
     result = run_lofi("start", tmp_path, f"127.0.0.1:{closed_port()}", extra_args=["help"])
     assert result.returncode == 0
-    assert "moq" in result.stdout and "headphones" in result.stdout
+    assert "browser" in result.stdout and "headphones" in result.stdout
 
 
 def test_per_command_help_start_documents_online_only(tmp_path):

@@ -22,7 +22,6 @@ import { attachTranscript } from "./transcript";
 const connectButton = document.querySelector<HTMLButtonElement>("#connect")!;
 const modeSelect = document.querySelector<HTMLSelectElement>("#mode-select")!;
 const muteButton = document.querySelector<HTMLButtonElement>("#mute")!;
-const webtransportBanner = document.querySelector<HTMLDivElement>("#webtransport-banner")!;
 const connectionState = document.querySelector<HTMLSpanElement>("#connection-state")!;
 const transcriptPane = document.querySelector<HTMLElement>("#transcript")!;
 const composer = document.querySelector<HTMLFormElement>("#composer")!;
@@ -77,12 +76,10 @@ modeSelect.addEventListener("change", () => {
 
 document.querySelector<HTMLSpanElement>("#transport-name")!.textContent = transportName;
 
-// Connect failed: reload once onto the next transport in the chain and
-// auto-connect. moq → webrtc → websocket (pure TCP, crosses any boundary that
-// forwards TCP — the Windows/WSL2 case). Storage guards the loop; no storage →
-// no auto-retry.
+// Connect failed: reload once onto websocket (pure TCP, crosses any boundary
+// that forwards TCP — the Windows/WSL2 case) and auto-connect. Storage guards
+// the loop; no storage → no auto-retry.
 const FALLBACK_NEXT: Partial<Record<string, string>> = {
-  moq: "webrtc",
   webrtc: "websocket",
 };
 
@@ -154,18 +151,10 @@ composer.addEventListener("submit", async (event) => {
   }
 });
 
-// MoQ requested (?transport=moq) on a browser without WebTransport
-// (Safari/Firefox): warn — the connect will fail and fall back to webrtc.
-if (transportName === "moq" && typeof WebTransport === "undefined") {
-  webtransportBanner.textContent =
-    "This browser has no WebTransport, so MoQ can't connect — it will fall back to WebRTC.";
-  webtransportBanner.hidden = false;
-}
-
 render(client.state);
 
-// Arriving via the automatic transport fallback (webrtc→websocket, or
-// moq→webrtc when ?transport=moq was forced): connect without a click — mic
+// Arriving via the automatic transport fallback (webrtc→websocket): connect
+// without a click — mic
 // permission was already granted to this origin on the failed attempt.
 if (new URLSearchParams(window.location.search).get("autoconnect") === "1") {
   connectButton.click();
