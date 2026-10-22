@@ -95,13 +95,13 @@ def test_front_stage_sends_no_tools_and_skips_multiturn():
 
 
 def test_json_payload_records_models_and_stage():
-    payload = run_evals.build_json_payload("split", {"split": {"answer_accuracy": 0.7}}, git_sha="abc123")
-    assert payload["meta"]["stage"] == "split"
+    payload = run_evals.build_json_payload("front", {"front": {"answer_accuracy": 0.7}}, git_sha="abc123")
+    assert payload["meta"]["stage"] == "front"
     assert payload["meta"]["llm_model"]
     assert payload["meta"]["rag_llm_model"]
     assert payload["meta"]["pinned_today"] == "2026-10-12"
     assert payload["meta"]["git_sha"] == "abc123"
-    assert payload["reports"]["split"]["answer_accuracy"] == 0.7
+    assert payload["reports"]["front"]["answer_accuracy"] == 0.7
 
 
 def test_single_turn_stages_skip_multiturn_queries():

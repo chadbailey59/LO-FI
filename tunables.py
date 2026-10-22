@@ -104,9 +104,6 @@ FILLER_PHRASE = "Let me check your records."
 # Spoken by silence_watchdog when a turn goes quiet mid-lookup.
 REMINDER_PHRASE = "I'm still working on it."
 
-# Legacy delegate tool called with no question.
-NO_QUESTION_ANSWER = "I didn't catch what to look up. Could you ask that again?"
-
 # Records agent could not reach Ollama or the store.
 FALLBACK_ANSWER = (
     "Sorry, I couldn't reach your records just now. Please try that question again."
@@ -342,16 +339,6 @@ DELEGATE_TOOL_DESCRIPTION = (
     "conversation itself. A request the user makes after your last call needs a "
     "call of its own, and so does anything the user says about work already handed "
     "over. Keep talking with the user while it works."
-)
-
-
-# Legacy question-arg delegate shape, used by `tools.build_delegate_tool`
-# (tests/evals only). The production split uses the no-arg tool above.
-LEGACY_DELEGATE_DESCRIPTION = (
-    "Look up anything in the user's own financial records — their transactions, "
-    "spending, income, merchants, accounts, amounts, dates, totals, and anything "
-    "in their saved documents and notes, including passphrases and personal "
-    "details they filed away. Pass the user's question in your own words."
 )
 
 

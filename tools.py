@@ -14,18 +14,11 @@ import json
 import sqlite3
 import time
 
-from pipecat.adapters.schemas.direct_function import tool_options
 from pipecat.adapters.schemas.function_schema import FunctionSchema
-from pipecat.frames.frames import TTSSpeakFrame
 from pipecat.processors.frameworks.rtvi.frames import RTVIServerMessageFrame
-from pipecat.services.llm_service import FunctionCallParams, FunctionCallResultProperties
+from pipecat.services.llm_service import FunctionCallParams
 
 import retrieval
-from tunables import (
-    DELEGATE_TOOL_NAME,
-    LEGACY_DELEGATE_DESCRIPTION,
-    NO_QUESTION_ANSWER,
-)
 
 RAG_MESSAGE_TYPE = "lofi-rag"
 # Separate type: lofi-rag freezes the stopwatch, stops money rain and clears
@@ -36,7 +29,6 @@ IDLE_MESSAGE_TYPE = "lofi-idle"
 
 # Outer bound on one delegate call; the records agent's own deadline (60 s,
 # reasoning on) fires first.
-DELEGATE_TIMEOUT_SECS = 75.0
 
 _COLUMNS = sorted(retrieval.COLUMN_SQL)
 _OPERATORS = sorted(retrieval.OPERATORS)
@@ -276,58 +268,3 @@ def build_public_tools(db_path, embedder) -> list[FunctionSchema]:
     """Online mode's one tool: semantic_search over the public index, pushing
     the same `lofi-rag` route lines as build_tools."""
     return _rtvi_tools(db_path, embedder, PUBLIC_TOOL_NAMES)
-
-
-def build_delegate_tool(db_path, embedder) -> list[FunctionSchema]:
-    """Legacy question-arg delegate (tests/evals); production split uses the
-    no-arg BackendConnector tool. Handler runs the records agent (reasoning on,
-    native API), pushes one `lofi-rag` route line per backend tool call, speaks
-    the composed answer itself, and suppresses the pipeline model's follow-up
-    completion — the front never composes over retrieved numbers."""
-    import rag_agent
-
-    async def speak_and_finish(params: FunctionCallParams, answer: str) -> None:
-        await params.llm.push_frame(TTSSpeakFrame(answer))
-        await params.result_callback(
-            {"say_exactly": answer},
-            properties=FunctionCallResultProperties(run_llm=False),
-        )
-
-    @tool_options(timeout_secs=DELEGATE_TIMEOUT_SECS)
-    async def ask_financial_records(params: FunctionCallParams) -> None:
-        args = _parse_arguments(params.arguments) or {}
-        question = str(args.get("question") or "").strip()
-        if not question:
-            await speak_and_finish(params, NO_QUESTION_ANSWER)
-            return
-
-        result = await rag_agent.answer_question(question, db_path=db_path, embedder=embedder)
-        for trace in result.traces:
-            await params.llm.push_frame(
-                RTVIServerMessageFrame(
-                    data={
-                        "type": RAG_MESSAGE_TYPE,
-                        "tool": trace["tool"],
-                        "args": trace["args"],
-                        "count": trace["count"],
-                        "elapsed_ms": trace["elapsed_ms"],
-                        "chunks": result.chunks if trace["tool"] == "semantic_search" else [],
-                    }
-                )
-            )
-        await speak_and_finish(params, result.answer)
-
-    return [
-        FunctionSchema(
-            name=DELEGATE_TOOL_NAME,
-            description=LEGACY_DELEGATE_DESCRIPTION,
-            properties={
-                "question": {
-                    "type": "string",
-                    "description": "The user's question, in their own words.",
-                }
-            },
-            required=["question"],
-            handler=ask_financial_records,
-        )
-    ]

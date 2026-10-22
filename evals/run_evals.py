@@ -1,4 +1,4 @@
-"""Eval harness for the two-model records split. Four stages, all localhost,
+"""Eval harness for the records stack. All stages run against localhost,
 no model-authored SQL:
 
   --stage retrieval  gold args straight into retrieval.py; source-id hit rate.
@@ -9,9 +9,13 @@ no model-authored SQL:
                       final completion = answer): answer accuracy + latency.
   --stage isolate    re-runs e2e failures with gold rows pasted in as the tool
                       result, to tell retrieval failures from model failures.
-  --stage split      the split architecture: front delegation (reasoning off,
-                      one delegate tool) + the records agent for real
-                      (reasoning on, native API). Not part of --stage all.
+  --stage front      a candidate front model: never invents numbers, defers
+                      records questions, answers chitchat. Not in --stage all.
+  --stage followup   front delegation on replayed production contexts (the
+                      live-miss regression set). Not in --stage all.
+  --stage analyst_followup
+                      a candidate analyst on replayed contexts: real tool
+                      calls, no invented facts, latency. Not in --stage all.
   --stage all        (default) the first four, in order.
 
 Questions are grounded against PINNED_TODAY — the gold answers for relative-date
@@ -616,84 +620,6 @@ DELEGATE_SCHEMA = {
 }
 
 
-async def _front_delegation(user_messages: list[str], client: httpx.AsyncClient) -> dict:
-    body = {
-        "model": config.llm_model(),
-        "messages": [
-            {
-                "role": "system",
-                "content": tunables.SPLIT_FRONT_PROMPT
-                + "\n\n"
-                + tunables.COMPACT_PAIRING_INSTRUCTION,
-            },
-            *({"role": "user", "content": m} for m in user_messages),
-        ],
-        "tools": [DELEGATE_SCHEMA],
-        "reasoning_effort": "none",
-        "stream": False,
-    }
-    started = time.perf_counter()
-    response = await client.post(_v1_url(), json=body)
-    response.raise_for_status()
-    message = response.json()["choices"][0]["message"]
-    return {
-        "delegated": bool(message.get("tool_calls")),
-        "ms": round((time.perf_counter() - started) * 1000, 1),
-    }
-
-
-async def run_split_stage(queries: list[dict], db_path, embedder, client: httpx.AsyncClient) -> dict:
-    front_rows = []
-    back_rows = []
-    for q in queries:
-        if q["type"] == "multiturn":
-            continue
-        user_messages = q["messages"] if q["type"] == "fragmented" else [q["query"]]
-        try:
-            front = await _front_delegation(user_messages, client)
-        except (httpx.TimeoutException, httpx.HTTPError) as exc:
-            front = {"delegated": None, "ms": None, "error": repr(exc)}
-        front_rows.append({"id": q["id"], "type": q["type"], **front})
-
-        if "expected_tool" not in q:
-            continue
-        result = await rag_agent.answer_question(
-            q["query"], db_path=db_path, embedder=embedder, today=PINNED_TODAY
-        )
-        if q.get("refusal"):
-            answer_ok = is_refusal(result.answer)
-        else:
-            answer_ok = answer_contains(q["expected_answer"], result.answer)
-        back_rows.append(
-            {
-                "id": q["id"],
-                "answer_ok": answer_ok,
-                "total_ms": result.timings.get("total_ms"),
-                "error": result.error,
-            }
-        )
-
-    data = [r for r in front_rows if r["type"] not in ("chitchat", "fragmented")]
-    chit = [r for r in front_rows if r["type"] == "chitchat"]
-    frag = [r for r in front_rows if r["type"] == "fragmented"]
-    totals = [r["total_ms"] for r in back_rows if r["total_ms"]]
-    return {
-        "front_rows": front_rows,
-        "back_rows": back_rows,
-        "delegation_recall": sum(bool(r["delegated"]) for r in data) / len(data) if data else None,
-        "delegation_precision": sum(r["delegated"] is False for r in chit) / len(chit) if chit else None,
-        "fragmented_recall": sum(bool(r["delegated"]) for r in frag) / len(frag) if frag else None,
-        "front_ms_avg": round(
-            sum(r["ms"] for r in front_rows if r["ms"]) / max(1, len([r for r in front_rows if r["ms"]])), 1
-        ),
-        "back_answer_accuracy": (
-            sum(r["answer_ok"] for r in back_rows) / len(back_rows) if back_rows else None
-        ),
-        "back_ms_mean": round(sum(totals) / len(totals), 1) if totals else None,
-        "back_ms_max": max(totals) if totals else None,
-    }
-
-
 # ---- stage: followup (delegation after a completed delegation round) -----------
 
 # Production context shape after one completed delegation: delegate tool call
@@ -1184,7 +1110,7 @@ def _print_table(title: str, rows: list[tuple]) -> None:
         print(" | ".join(str(c) for c in row))
 
 
-def print_report(retrieval_report=None, toolcall_report=None, e2e_report=None, isolate_report=None, split_report=None, front_report=None, followup_report=None, analyst_followup_report=None) -> None:
+def print_report(retrieval_report=None, toolcall_report=None, e2e_report=None, isolate_report=None, front_report=None, followup_report=None, analyst_followup_report=None) -> None:
     if analyst_followup_report is not None:
         _print_table(
             "Analyst follow-up (poisoned context: retrieve, never invent)",
@@ -1335,8 +1261,6 @@ async def _amain(args) -> None:
             isolate_report = await run_isolate_stage(
                 failures, queries_by_id, system, db_path, embedder, client
             )
-        if args.stage == "split":
-            split_report = await run_split_stage(queries, db_path, embedder, client)
         if args.stage == "front":
             front_report = await run_front_stage(
                 queries, tunables.SPLIT_FRONT_PROMPT, client
@@ -1346,7 +1270,7 @@ async def _amain(args) -> None:
         if args.stage == "analyst_followup":
             analyst_followup_report = await run_analyst_followup_stage(db_path, embedder, client)
 
-    print_report(retrieval_report, toolcall_report, e2e_report, isolate_report, split_report, front_report, followup_report, analyst_followup_report)
+    print_report(retrieval_report, toolcall_report, e2e_report, isolate_report, front_report, followup_report, analyst_followup_report)
 
     if args.json:
         reports = {
@@ -1356,7 +1280,6 @@ async def _amain(args) -> None:
                 ("toolcall", toolcall_report),
                 ("e2e", e2e_report),
                 ("isolate", isolate_report),
-                ("split", split_report),
                 ("front", front_report),
                 ("followup", followup_report),
                 ("analyst_followup", analyst_followup_report),
@@ -1374,7 +1297,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
         "--stage",
-        choices=["retrieval", "toolcall", "e2e", "isolate", "split", "front", "followup", "analyst_followup", "all"],
+        choices=["retrieval", "toolcall", "e2e", "isolate", "front", "followup", "analyst_followup", "all"],
         default="all",
     )
     parser.add_argument(

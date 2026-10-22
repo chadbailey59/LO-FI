@@ -534,17 +534,18 @@ The question: *what can this computer actually run?* The process:
    [`./lofi.sh start --online-only`](#online-only-a-machine-with-no-models).
 
 3. **Measure, don't vibe.** The eval harness is the yardstick:
-   `uv run python evals/run_evals.py --stage split` scores a candidate
-   analyst on gold queries (accuracy, missed questions, latency);
-   `--stage front` checks a candidate front model never invents numbers and
-   defers records questions. `evals/sweep.sh` loops a list of candidates
-   through both and prints a leaderboard — edit the candidate lists and run
-   it against your own hardware.
+   `uv run python evals/run_evals.py --stage analyst_followup` scores a
+   candidate analyst on replayed production contexts (real tool calls, no
+   invented facts, latency); `--stage front` checks a candidate front model
+   never invents numbers and defers records questions. `evals/sweep.sh`
+   loops a list of candidates through both and prints a leaderboard — edit
+   the candidate lists and run it against your own hardware.
 
-4. **Read the right numbers.** `answer_accuracy` is the headline;
-   `sentinel_on_data` is questions the analyst wrongly ignored;
-   `silent_on_chitchat` catches an analyst that butts into small talk;
-   `total_ms_mean` is what the wait feels like. A model that's 5 points more
+4. **Read the right numbers.** For an analyst candidate:
+   `analyst_retrieval_rate` (answers came from real tool calls),
+   `analyst_no_invented_fact_rate` (nothing made up), `analyst_ms_avg` (what
+   the wait feels like). For a front candidate: `no_invented_numbers_rate`,
+   `defers_on_data`, `answers_chitchat`. A model that's 5 points more
    accurate but twice as slow is usually the wrong trade for live voice.
 
 5. **Mind residency.** Swapping models mid-session costs a multi-second
