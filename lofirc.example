@@ -4,7 +4,7 @@
 
 LOFI_MODEL_DIR=./models
 
-#LOFI_ARCHITECTURE=llmwithbackend            # llmwithbackend (default: front + analyst backend) | cascade (one model, stable fallback)
+#LOFI_ARCHITECTURE=llmwithbackend            # llmwithbackend (default: front + analyst backend) | cascade (STT,LLM,TTS)
 
 #LOFI_LLM_MODEL=qwen2.5:7b
 #LOFI_RAG_LLM_MODEL=qwen3:8b                 # records analyst backend; needs real API tool calls

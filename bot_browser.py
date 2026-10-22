@@ -33,8 +33,14 @@ from pipecat.transports.base_transport import BaseTransport
 from pipecat.workers.runner import WorkerRunner
 
 import store
-from bot import _configure_logging, _ollama_models_to_check, _preflight_local
-from pipeline import ONLINE_MODE, build_pipeline, public_rag_summary
+from bot import (
+    _configure_logging,
+    _ollama_models_to_check,
+    _preflight_llm,
+    _preflight_rag,
+    _preflight_stt,
+)
+from pipeline import OFFLINE_MODE, ONLINE_MODE, build_pipeline, public_rag_summary
 from scripts.prefetch_models import (
     DAILY_BUNDLE_NAMES,
     daily_bundle_path,
@@ -91,7 +97,20 @@ def _serve_client_dist(app) -> None:
         return RedirectResponse(daily_bundle_url(name), status_code=302)
 
 
-OFFLINE_MODE = "offline"
+
+
+def _preflight_local() -> None:
+    """Run the local-stack preflights, unless this process is online-only.
+
+    An online-only process speaks to Deepgram/OpenAI/Cartesia, so Ollama,
+    the Whisper weights, and the embed model are all irrelevant to it.
+    """
+    if config.online_only():
+        logger.info("online-only process — skipping the local LLM/STT/RAG preflights")
+        return
+    _preflight_llm(config.ollama_base_url())
+    _preflight_stt()
+    _preflight_rag()
 
 
 def _requested_mode(runner_args) -> str | None:

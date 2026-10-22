@@ -8,7 +8,6 @@ keys (never their values; only presence is ever asserted).
 
 import pytest
 
-import bot
 import bot_browser
 import config
 
@@ -98,19 +97,19 @@ def test_online_only_skips_local_preflights(monkeypatch):
     def boom(*args, **kwargs):
         raise AssertionError("local preflight ran in an online-only process")
 
-    monkeypatch.setattr(bot, "_preflight_llm", boom)
-    monkeypatch.setattr(bot, "_preflight_stt", boom)
-    monkeypatch.setattr(bot, "_preflight_rag", boom)
+    monkeypatch.setattr(bot_browser, "_preflight_llm", boom)
+    monkeypatch.setattr(bot_browser, "_preflight_stt", boom)
+    monkeypatch.setattr(bot_browser, "_preflight_rag", boom)
     monkeypatch.setenv("LOFI_ONLINE_ONLY", "1")
-    bot._preflight_local()
+    bot_browser._preflight_local()
 
 
 def test_local_preflights_run_by_default(monkeypatch):
     ran = []
-    monkeypatch.setattr(bot, "_preflight_llm", lambda url: ran.append(("llm", url)))
-    monkeypatch.setattr(bot, "_preflight_stt", lambda: ran.append(("stt",)))
-    monkeypatch.setattr(bot, "_preflight_rag", lambda: ran.append(("rag",)))
-    bot._preflight_local()
+    monkeypatch.setattr(bot_browser, "_preflight_llm", lambda url: ran.append(("llm", url)))
+    monkeypatch.setattr(bot_browser, "_preflight_stt", lambda: ran.append(("stt",)))
+    monkeypatch.setattr(bot_browser, "_preflight_rag", lambda: ran.append(("rag",)))
+    bot_browser._preflight_local()
     assert [entry[0] for entry in ran] == ["llm", "stt", "rag"]
 
 

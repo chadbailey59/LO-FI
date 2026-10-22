@@ -406,6 +406,8 @@ def ingest(
         prior_embed_model = _meta_get(conn, "embed_model")
         prior_serializer = _meta_get(conn, "serializer_version")
         prior_schema = _meta_get(conn, "schema_version")
+        prior_chunk_tokens = _meta_get(conn, "chunk_tokens")
+        prior_chunk_overlap = _meta_get(conn, "chunk_overlap")
 
         rebuilt = False
         reason = None
@@ -416,6 +418,10 @@ def ingest(
                 reason = f"serializer_version changed ({prior_serializer} -> {SERIALIZER_VERSION})"
             elif prior_schema != str(SCHEMA_VERSION):
                 reason = f"schema_version changed ({prior_schema} -> {SCHEMA_VERSION})"
+            elif prior_chunk_tokens not in (None, str(chunk_tokens)):
+                reason = f"chunk_tokens changed ({prior_chunk_tokens} -> {chunk_tokens})"
+            elif prior_chunk_overlap not in (None, str(overlap)):
+                reason = f"chunk_overlap changed ({prior_chunk_overlap} -> {overlap})"
             if reason:
                 logger.info(f"full rebuild: {reason}")
                 _full_wipe(conn)

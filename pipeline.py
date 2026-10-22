@@ -70,6 +70,7 @@ from tunables import (
 )
 
 ONLINE_MODE = "online"
+OFFLINE_MODE = "offline"
 
 
 @dataclass
@@ -381,7 +382,7 @@ def build_online_pipeline(transport: BaseTransport) -> BuiltBot:
     )
 
 
-def build_pipeline(transport: BaseTransport, mode: str = "offline") -> BuiltBot:
+def build_pipeline(transport: BaseTransport, mode: str = OFFLINE_MODE) -> BuiltBot:
     """Assemble the bot for one session.
 
     ``mode``: ``"online"`` builds the cloud cascade over the public index;

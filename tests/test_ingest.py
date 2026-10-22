@@ -548,3 +548,31 @@ def test_public_config_paths_default_under_the_index_dir(tmp_path, monkeypatch):
     assert config.public_rag_db_path() == str(tmp_path / "idx" / "lofi-public.db")
     assert config.public_rag_data_dir() == str(tmp_path / "data" / "public")
     assert config.online_embed_model() == "text-embedding-3-small"
+
+
+def test_chunk_param_change_triggers_full_rebuild(tmp_path):
+    data_dir = make_data_dir(tmp_path, with_note=True)
+    db_path = tmp_path / "lofi.db"
+    ingest(data_dir, db_path, FakeEmbedder(), chunk_tokens=500, overlap=50)
+
+    counting = CountingEmbedder(FakeEmbedder())
+    ingest(data_dir, db_path, counting, chunk_tokens=200, overlap=20)
+
+    assert counting.calls > 0  # unchanged files re-chunked and re-embedded
+    conn = store.connect(db_path)
+    try:
+        row = conn.execute("select value from meta where key='chunk_tokens'").fetchone()
+        assert row[0] == "200"
+    finally:
+        conn.close()
+
+
+def test_same_chunk_params_keep_incremental_skip(tmp_path):
+    data_dir = make_data_dir(tmp_path, with_note=True)
+    db_path = tmp_path / "lofi.db"
+    ingest(data_dir, db_path, FakeEmbedder(), chunk_tokens=500, overlap=50)
+
+    counting = CountingEmbedder(FakeEmbedder())
+    ingest(data_dir, db_path, counting, chunk_tokens=500, overlap=50)
+
+    assert counting.calls == 0  # unchanged files, unchanged params: skipped

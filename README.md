@@ -819,8 +819,8 @@ measured, byte-sensitive text — read them before editing.
 | `LOFI_RAG_DATA_DIR` | `./data` | The documents to index (`.txt`/`.md`/`.pdf`/`.csv`) — put files here, then `./lofi.sh index-rag`. Absolute, `~`, or relative-to-repo. |
 | `LOFI_RAG_INDEX_DIR` | `$LOFI_MODEL_DIR/rag-index` | Directory the indexes live in. |
 | `LOFI_RAG_DB` | `$LOFI_RAG_INDEX_DIR/lofi.db` | The offline SQLite file: typed rows, FTS5 full text, and `sqlite-vec` vectors. |
-| `LOFI_RAG_CHUNK_TOKENS` | `500` | Chunk budget in whitespace-split words. |
-| `LOFI_RAG_CHUNK_OVERLAP` | `50` | Words repeated between consecutive chunks. |
+| `LOFI_RAG_CHUNK_TOKENS` | `500` | Chunk budget in whitespace-split words. Changing it triggers a full re-index on the next `./lofi.sh index-rag`. |
+| `LOFI_RAG_CHUNK_OVERLAP` | `50` | Words repeated between consecutive chunks. Changing it triggers a full re-index on the next `./lofi.sh index-rag`. |
 | `LOFI_PUBLIC_RAG_DATA_DIR` | `./data/public` | The only documents an online session can retrieve. Also indexed into the offline db. |
 | `LOFI_PUBLIC_RAG_DB` | `$LOFI_RAG_INDEX_DIR/lofi-public.db` | The public index. The only db online-mode code may open. |
 | `LOFI_ONLINE_STT_MODEL` | `nova-3` | Deepgram model for online sessions; runs with `language=multi` so it code-switches. |
