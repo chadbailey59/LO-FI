@@ -58,8 +58,8 @@ from services import (
 from silence_watchdog import SilenceWatchdog
 from tunables import (
     ANALYST_SYSTEM_PROMPT,
-    BACKEND_COMPACT_PAIRING_INSTRUCTION,
-    COMPACT_PAIRING_INSTRUCTION,
+    LOFI_BACKEND_PAIRING_INSTRUCTION,
+    LOFI_FRONTEND_PAIRING_INSTRUCTION,
     DELEGATE_TOOL_DESCRIPTION,
     DELEGATE_TOOL_NAME,
     LOFI_FILLER_PHRASE,
@@ -242,7 +242,7 @@ def build_records_connector():
             )
 
     return RecordsBackendConnector(
-        frontend_pairing_instruction=COMPACT_PAIRING_INSTRUCTION,
+        frontend_pairing_instruction=LOFI_FRONTEND_PAIRING_INSTRUCTION,
         # Post-delegate re-run narrates the handoff ("Let me check that for
         # you..."); those narrations accumulate in context as complete-looking
         # answers to records questions, and after two rounds the temp-0 7B
@@ -291,8 +291,8 @@ def build_records_backend(db_path):
         ),
         transform_output=_strip_think_output,
         # Stock instruction inverts the >> mark on qwen3:8b — see the
-        # BACKEND_COMPACT_PAIRING_INSTRUCTION comment in tunables.py.
-        pairing_instruction=BACKEND_COMPACT_PAIRING_INSTRUCTION,
+        # LOFI_BACKEND_PAIRING_INSTRUCTION comment in tunables.py.
+        pairing_instruction=LOFI_BACKEND_PAIRING_INSTRUCTION,
     )
 
 

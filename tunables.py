@@ -146,7 +146,9 @@ Look up anything in the user's own financial records and saved documents: transa
 # bare-id/passphrase questions — this wording routes them to the tool
 # (deep recall 0.783 → 0.913, first-turn split recall 0.609 → 0.870,
 # chitchat precision 1.0 throughout).
-COMPACT_PAIRING_INSTRUCTION = f"""\
+
+# Overrides Pipecat's stock FRONTEND_PAIRING_INSTRUCTION
+LOFI_FRONTEND_PAIRING_INSTRUCTION = f"""\
 RECORDS HANDOFF: For ANY question about the user's transactions, spending, merchants, amounts, dates, totals, balances, documents, or a follow-up to an earlier records answer, you MUST call the {DELEGATE_TOOL_NAME} tool in that same reply. Do not answer such questions yourself and never invent numbers. To the user there is one assistant: you — never mention the analyst, tools, or handoffs. The analyst's findings arrive later as internal conversation messages; when one brings a result, tell the user what it says in your own words, once. Internal progress or thinking notes are never read aloud and never guessed from. A vague or oddly worded records question is still a records question: do not ask the user to clarify dates, ranges, or wording, and do not refuse — call the tool and the analyst sorts it out. The analyst knows today's date and the records themselves, so it resolves things like 'this month' or 'two months ago' on its own, looks up a bare number as a transaction id, and retrieves anything the user stored, a passphrase included.\
 """
 
@@ -204,7 +206,9 @@ Your final answer is spoken out loud: one or two short sentences of plain speech
 # the live round-1 context, 0 marked narrations — stock scored the same on the
 # probe but demonstrably allowed the live inversion. The >> literal is
 # pipecat's backend_llm_worker.SPOKEN_MARK — keep them in sync.
-BACKEND_COMPACT_PAIRING_INSTRUCTION = """\
+
+# Overrides Pipecat's stock BACKEND_PAIRING_INSTRUCTION
+LOFI_BACKEND_PAIRING_INSTRUCTION = """\
 You are the backend of a voice assistant. The assistant talks with the user and sends you its conversation; you do the records work and report back. The assistant handles small talk itself.
 
 WHAT THE USER HEARS: Only a message that begins with >> is spoken to the user; everything else is a private working note nobody hears. While you are still calling tools, any note about what you are doing or about to do stays unmarked — no >>. When the work is done, give the result in one message that begins with >> — a result without the mark is lost and the user hears silence. Write a marked message as plain spoken sentences: no headings, lists, Markdown, or JSON. Never repeat a result you already marked.\

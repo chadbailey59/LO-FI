@@ -18,7 +18,7 @@
 - Baseline `uv run pytest -q`: 264 passed. Stays green every task.
 - Keys: `OPENAI_API_KEY`, `DEEPGRAM_API_KEY`, `CARTESIA_API_KEY` in `.env` only. Never log, never send to client, never in `.lofirc` or examples with values.
 - Online code must never construct `config.rag_db_path()`; only `config.public_rag_db_path()`.
-- Prompts are measured, not vibed: never touch `COMPACT_PAIRING_INSTRUCTION`; new online prompt text is additive and gets the chitchat/records/passphrase trio run once against the hosted model (Task 10's gate).
+- Prompts are measured, not vibed: never touch `LOFI_FRONTEND_PAIRING_INSTRUCTION`; new online prompt text is additive and gets the chitchat/records/passphrase trio run once against the hosted model (Task 10's gate).
 - No commits by interactive sessions without the user's ask; ralph iterations commit locally per its own convention.
 - One README, top level only. Client changes require `cd client && npm run build`.
 - **Naming duality: `offline`/`online`, never `hosted`.** "Hosted" implied the whole bot is hosted; it isn't. `HOSTED_INTRO` → `ONLINE_INTRO` (kept, re-worded, paired with `OFFLINE_INTRO`); no new `hosted*` identifiers or UI copy anywhere (banner says ONLINE).

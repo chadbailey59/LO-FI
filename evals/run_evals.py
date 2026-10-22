@@ -728,7 +728,7 @@ async def _followup_delegation(
                 "role": "system",
                 "content": tunables.SPLIT_FRONT_PROMPT
                 + "\n\n"
-                + tunables.COMPACT_PAIRING_INSTRUCTION,
+                + tunables.LOFI_FRONTEND_PAIRING_INSTRUCTION,
             },
             *history,
             {"role": "user", "content": question},
@@ -929,7 +929,7 @@ async def _analyst_turn(
     import sqlite3
 
     messages = [
-        {"role": "system", "content": tunables.BACKEND_COMPACT_PAIRING_INSTRUCTION},
+        {"role": "system", "content": tunables.LOFI_BACKEND_PAIRING_INSTRUCTION},
         {"role": "system", "content": backend_system},
         *ANALYST_POISONED_CONTEXT,
     ]
