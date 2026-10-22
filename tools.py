@@ -26,6 +26,9 @@ RAG_MESSAGE_TYPE = "lofi-rag"
 RAG_PENDING_MESSAGE_TYPE = "lofi-rag-pending"
 BUSY_MESSAGE_TYPE = "lofi-busy"
 IDLE_MESSAGE_TYPE = "lofi-idle"
+# Backend answer delivered, front's relay run starting: watchdog clears busy
+# and restarts its timer fresh.
+RELAY_MESSAGE_TYPE = "lofi-relay"
 
 # Outer bound on one delegate call; the records agent's own deadline (60 s,
 # reasoning on) fires first.

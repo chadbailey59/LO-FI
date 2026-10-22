@@ -163,3 +163,44 @@ def test_spoken_answer_clears_busy_watch():
 
     down = asyncio.run(run())
     assert reminders(down, watchdog._phrase) == []
+
+
+def test_relay_signal_retimes_stale_busy_deadline():
+    # Busy deadline armed 0.08s ago would fire at 0.1s, mid-relay; the relay
+    # signal restarts the timer, and the relay's own text then disarms it.
+    watchdog = SilenceWatchdog(interval_secs=0.1, max_reminders=1)
+
+    async def run():
+        down, _up = await run_test(
+            watchdog,
+            frames_to_send=[
+                _rtvi("lofi-busy"),
+                SleepFrame(0.08),
+                _rtvi("lofi-relay"),
+                SleepFrame(0.06),
+                LLMTextFrame("The passphrase is BLUE MANATEE 436921."),
+                SleepFrame(0.15),
+            ],
+        )
+        return down
+
+    down = asyncio.run(run())
+    assert reminders(down, watchdog._phrase) == []
+
+
+def test_relay_that_hangs_still_gets_a_reminder():
+    watchdog = SilenceWatchdog(interval_secs=0.05, max_reminders=1)
+
+    async def run():
+        down, _up = await run_test(
+            watchdog,
+            frames_to_send=[
+                _rtvi("lofi-busy"),
+                _rtvi("lofi-relay"),
+                SleepFrame(0.2),
+            ],
+        )
+        return down
+
+    down = asyncio.run(run())
+    assert len(reminders(down, watchdog._phrase)) == 1

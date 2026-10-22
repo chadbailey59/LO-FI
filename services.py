@@ -62,20 +62,21 @@ def stt_weights_location(repo_id: str) -> tuple[str, Path] | None:
 
 
 def _stt_model_arg(configured: str) -> str:
-    """The model value handed to the STT service: the configured name when the
-    lofi store holds the weights (the service resolves it through $HF_HOME),
-    or the external cache's snapshot path so the model loads from where it
-    already is — no download, no symlinks. Both whisper backends accept a local
-    directory (mlx_whisper path_or_hf_repo / faster_whisper model_size_or_path).
+    """The model value handed to the STT service: the local snapshot path when
+    any cache holds the weights, else the configured name. A path loads
+    straight from disk; a repo id makes the backend call snapshot_download,
+    whose hub check stalls the first utterance ~78s with no network (measured
+    2026-10-22). Both whisper backends accept a local directory
+    (mlx_whisper path_or_hf_repo / faster_whisper model_size_or_path).
     """
     repo_id = stt_repo_id()
     if repo_id is None:
         return configured
     location = stt_weights_location(repo_id)
-    if location is None or location[0] == "store":
+    if location is None:
         return configured
-    snapshot = location[1]
-    logger.info(f"STT '{repo_id}' loading weights from external cache: {snapshot}")
+    source, snapshot = location
+    logger.info(f"STT '{repo_id}' loading weights from {source} cache: {snapshot}")
     return str(snapshot)
 
 

@@ -82,10 +82,13 @@ def test_weights_location_prefers_store(hubs):
     assert services.stt_weights_location(REPO) == ("store", store_snap)
 
 
-def test_model_arg_is_repo_id_when_store_has_weights(hubs):
+def test_model_arg_is_snapshot_path_when_store_has_weights(hubs):
+    # A repo id makes mlx_whisper call snapshot_download, whose hub check
+    # stalls the FIRST utterance ~78s with wifi off (measured 2026-10-22);
+    # a snapshot path loads straight from disk, no network code.
     store_hub, _ = hubs
-    _add_snapshot(store_hub, "weights.safetensors")
-    assert services._stt_model_arg(REPO) == REPO
+    snap = _add_snapshot(store_hub, "weights.safetensors")
+    assert services._stt_model_arg(REPO) == str(snap)
 
 
 def test_model_arg_is_snapshot_path_when_external_only(hubs):

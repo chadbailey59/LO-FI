@@ -210,6 +210,12 @@ def build_records_connector():
         # with appended output and no front run, nudge one: an empty append
         # with run_llm=True runs the front on the context it already holds,
         # waits out in-flight speech, and persists no message.
+        #
+        # Every front run triggered here also signals lofi-relay: the
+        # watchdog's deadline armed at delegation restarts fresh for the
+        # relay run (measured 2026-10-22 12:56 log: 30s deadline fired 2.5s
+        # after the answer arrived, speaking "I'm still working on it."
+        # ahead of the answer).
         async def deliver(self, frontend, event):
             await super().deliver(frontend, event)
             if isinstance(event, BackendOutput):
@@ -217,15 +223,23 @@ def build_records_connector():
                     self._lull_appended = True
                     if event.prefers_spoken:
                         self._lull_ran_front = True
+                        await self._signal_relay(frontend)
             elif isinstance(event, BackendError):
                 self._lull_ran_front = True
+                await self._signal_relay(frontend)
             elif isinstance(event, BackendIdle):
                 if self._lull_appended and not self._lull_ran_front:
                     await self._append(
                         frontend, LLMMessagesAppendFrame(messages=[], run_llm=True)
                     )
+                    await self._signal_relay(frontend)
                 self._lull_appended = False
                 self._lull_ran_front = False
+
+        async def _signal_relay(self, frontend):
+            await frontend.push_frame(
+                RTVIServerMessageFrame(data={"type": tools.RELAY_MESSAGE_TYPE})
+            )
 
     return RecordsBackendConnector(
         frontend_pairing_instruction=COMPACT_PAIRING_INSTRUCTION,

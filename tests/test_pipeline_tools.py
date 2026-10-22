@@ -354,9 +354,13 @@ class RecordingTTSService(FrameProcessor):
     def __init__(self):
         super().__init__()
         self.queued = []
+        self.pushed = []
 
     async def queue_frame(self, frame, *args, **kwargs):
         self.queued.append(frame)
+
+    async def push_frame(self, frame, *args, **kwargs):
+        self.pushed.append(frame)
 
 
 def test_cascade_filler_is_spoken_but_kept_out_of_context(db, monkeypatch, stub_services):
@@ -491,6 +495,53 @@ def test_nudge_tracking_resets_each_lull():
         ],
     )
     assert len(_nudges(frontend)) == 1
+
+
+def _relay_signals(frontend):
+    from pipecat.processors.frameworks.rtvi.frames import RTVIServerMessageFrame
+
+    return [
+        f
+        for f in frontend.pushed
+        if isinstance(f, RTVIServerMessageFrame) and f.data.get("type") == tools.RELAY_MESSAGE_TYPE
+    ]
+
+
+def test_every_delivery_front_run_signals_relay():
+    # Each front run triggered by a delivery (spoken answer, error, idle
+    # nudge) restarts the watchdog timer: the deadline armed at delegation
+    # otherwise fires mid-relay (measured 2026-10-22 12:56 log: "I'm still
+    # working on it." spoken 2.5s after the answer arrived, ahead of it).
+    from pipecat.workers.llm.backend_llm_worker import BackendError, BackendIdle, BackendOutput
+
+    connector = pipeline.build_records_connector()
+    frontend = RecordingTTSService()
+    _deliver_all(
+        connector,
+        frontend,
+        [
+            BackendOutput(text="Spoken answer.", prefers_spoken=True),
+            BackendIdle(),
+            BackendError(error="boom"),
+            BackendIdle(),
+            BackendOutput(text="unmarked answer", prefers_spoken=False),
+            BackendIdle(),
+        ],
+    )
+    assert len(_relay_signals(frontend)) == 3
+
+
+def test_silent_notes_do_not_signal_relay():
+    from pipecat.workers.llm.backend_llm_worker import BackendOutput
+
+    connector = pipeline.build_records_connector()
+    frontend = RecordingTTSService()
+    _deliver_all(
+        connector,
+        frontend,
+        [BackendOutput(text="note only", prefers_spoken=False, is_thought=True)],
+    )
+    assert _relay_signals(frontend) == []
 
 
 def test_watchdog_reminder_skips_context():

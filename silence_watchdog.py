@@ -6,7 +6,8 @@ Armed by UserStoppedSpeakingFrame or a `lofi-busy` signal; disarmed by the
 user speaking again or bot text flowing through. While busy (a records lookup
 in flight), streamed LLM text does NOT disarm — while a backend works the front
 chats while the analyst works, and that chatter must not silence the watchdog.
-Busy clears on `lofi-idle`, a route line, or a spoken answer. The canned
+Busy clears on `lofi-idle`, a route line, a spoken answer, or `lofi-relay`
+(backend answer delivered; relay run gets a fresh timer). The canned
 filler bypasses this processor (queued directly on the TTS service), so a
 spoken filler keeps it armed while a tool call runs. Reminders repeat up to
 ``max_reminders`` per turn, then it gives up quietly.
@@ -27,7 +28,7 @@ from pipecat.frames.frames import (
 from pipecat.processors.frame_processor import FrameDirection, FrameProcessor
 from pipecat.processors.frameworks.rtvi.frames import RTVIServerMessageFrame
 
-from tools import BUSY_MESSAGE_TYPE, IDLE_MESSAGE_TYPE, RAG_MESSAGE_TYPE
+from tools import BUSY_MESSAGE_TYPE, IDLE_MESSAGE_TYPE, RAG_MESSAGE_TYPE, RELAY_MESSAGE_TYPE
 from tunables import REMINDER_PHRASE
 
 REMINDER_INTERVAL_SECS = 30.0
@@ -67,6 +68,12 @@ class SilenceWatchdog(FrameProcessor):
                 await self._disarm()
             elif message_type == RAG_MESSAGE_TYPE:
                 self._busy = False
+            elif message_type == RELAY_MESSAGE_TYPE:
+                # Lookup done, relay run starting: a deadline armed at
+                # delegation would fire mid-relay — restart the timer fresh;
+                # the relay's own text (busy now off) disarms it.
+                self._busy = False
+                self._arm()
         elif isinstance(frame, TTSSpeakFrame) and frame.text.strip():
             self._busy = False
             await self._disarm()
