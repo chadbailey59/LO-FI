@@ -87,15 +87,13 @@ def test_missing_online_keys_empty_when_all_present(monkeypatch):
     assert config.missing_online_keys() == []
 
 
-def test_online_model_defaults_come_from_tunables(monkeypatch):
-    """The three online model knobs default to tunables and honor LOFI_* overrides."""
-    import tunables
-
+def test_online_model_defaults(monkeypatch):
+    """The three online model knobs have defaults and honor LOFI_* overrides."""
     for name in ("LOFI_ONLINE_LLM_MODEL", "LOFI_ONLINE_STT_MODEL", "LOFI_ONLINE_TTS_VOICE"):
         monkeypatch.delenv(name, raising=False)
-    assert config.online_llm_model() == tunables.DEFAULT_ONLINE_LLM_MODEL
-    assert config.online_stt_model() == tunables.DEFAULT_ONLINE_STT_MODEL
-    assert config.online_tts_voice() == tunables.DEFAULT_ONLINE_TTS_VOICE
+    assert config.online_llm_model() == "gpt-4o-mini"
+    assert config.online_stt_model() == "nova-3"
+    assert config.online_tts_voice() == "86e30c1d-714b-4074-a1f2-1cb6b552fb49"
 
     monkeypatch.setenv("LOFI_ONLINE_LLM_MODEL", "gpt-4.1-mini")
     assert config.online_llm_model() == "gpt-4.1-mini"

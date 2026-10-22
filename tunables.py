@@ -6,24 +6,25 @@ free to change, sections 3 onward carry measured wordings whose landmine
 comments say what breaks.
 
 What lives here:
-  - model / voice / engine defaults (section 1)
+  - STT/TTS engine defaults (section 1)
   - canned spoken lines (section 2)
   - every system prompt, tool description, and nudge (sections 3-5)
 
 What deliberately lives elsewhere:
+  - model tags, voice ids, architecture — defaults inline in `config.py`'s
+    getters; override them with `LOFI_*` vars in `.lofirc` at the repo root
+    (`lofirc.example` is the template)
   - retrieval tool JSON schemas and their per-parameter descriptions —
     `tools.PARAMS` (they embed enums computed from `retrieval.COLUMN_SQL`,
     `OPERATORS`, `ORDER_SQL`; schema-structural, not tunable prose)
   - plumbing knobs: URLs, cache paths, VAD, chunking, timeouts, log
     level — `config.py`
 
-Env vars: the model defaults in section 1 are what `config.py`'s getters fall
-back to, so `LOFI_*` env vars still override them at runtime. Those overrides
-live in `.lofirc` at the repo root (`lofirc.example` is the template); `.env`
-holds only the three online-session API keys. Prompts have no env override —
-editing this file IS the mechanism.
+Env vars: `LOFI_*` env vars override the section-1 engine defaults at runtime;
+`.env` holds only the three online-session API keys. Prompts have no env
+override — editing this file IS the mechanism.
 
-KV-cache rule: `BASE_PROMPT` and `ANALYST_SYSTEM_PROMPT` stay free of per-call
+KV-cache rule: `LOFI_OFFLINE_CASCADE_PROMPT` and `ANALYST_SYSTEM_PROMPT` stay free of per-call
 data so Ollama's prefix cache survives between turns. Grounding (today's date,
 records range, categories) is appended as a suffix (`system_prompt`) or
 prepended to the user message (`rag_agent.grounded_question`). Never template
@@ -31,7 +32,7 @@ per-call values into the prompt bodies.
 
 Prompts can be swapped per model with a plain conditional — no dispatch
 machinery needed:
-# if DEFAULT_LLM_MODEL.startswith("llama"):
+# if os.environ.get("LOFI_LLM_MODEL", "").startswith("llama"):
 #     SPLIT_FRONT_PROMPT = ...
 
 Import rule: stdlib only. `config` imports `tunables`, never the reverse, and
@@ -45,7 +46,7 @@ import datetime
 import platform
 
 # ===========================================================================
-# 1. MODEL DEFAULTS — edit freely; LOFI_* env vars override
+# 1. ENGINE DEFAULTS — edit freely; LOFI_* env vars override
 # ===========================================================================
 
 # Whisper-MLX needs an Apple-Silicon GPU (MLX ships no other macOS builds);
@@ -53,153 +54,40 @@ import platform
 IS_APPLE_SILICON = platform.system() == "Darwin" and platform.machine() == "arm64"
 DEFAULT_STT_ENGINE = "whisper_mlx" if IS_APPLE_SILICON else "faster_whisper"
 DEFAULT_TTS_ENGINE = "kokoro"
-DEFAULT_WHISPER_MODEL = "LARGE_V3_TURBO"
-DEFAULT_FASTER_WHISPER_MODEL = "DISTIL_MEDIUM_EN"
-DEFAULT_MOONSHINE_MODEL = "SMALL_STREAMING"
-DEFAULT_PIPER_VOICE = "en_US-lessac-medium"
-DEFAULT_KOKORO_VOICE = "af_heart"
-# The default pair: obedient non-thinking front + thinking analyst backend on
-# the split (LLMWithBackend) architecture. qwen2.5:7b is the smallest front
-# that delegates follow-ups reliably (3/3; 3b/4b fronts drop them and
-# fabricate). qwen3:8b analyst calls its tools via the API 3/3 under the
-# worker's composed prompt; nemotron-3-nano:4b writes tool calls as JSON text
-# there (3/3, measured 2026-10-16) and silently answers nothing — unusable as
-# the split backend.
-DEFAULT_LLM_MODEL = "qwen2.5:7b"
-DEFAULT_RAG_LLM_MODEL = "qwen3:8b"
-DEFAULT_EMBED_MODEL = "nomic-embed-text"
-# Online mode embeds the public index through OpenAI; the private index
-# stays on nomic-embed-text above.
-DEFAULT_ONLINE_EMBED_MODEL = "text-embedding-3-small"
-# The online-session cascade: Deepgram STT → OpenAI LLM → Cartesia TTS.
-DEFAULT_ONLINE_LLM_MODEL = "gpt-4o-mini"
-# nova-3 transcribes with `language="multi"` (services.build_online_stt), so an
-# English↔Spanish turn lands on one connection.
-DEFAULT_ONLINE_STT_MODEL = "nova-3"
-# Cartesia's cross-lingual voice from pipecat's own examples — speaks Spanish
-# from the same id, so the language practice beat needs no voice swap.
-DEFAULT_ONLINE_TTS_VOICE = "86e30c1d-714b-4074-a1f2-1cb6b552fb49"
-DEFAULT_ARCHITECTURE = "llmwithbackend"
 
 # ===========================================================================
 # 2. SPOKEN CANNED LINES — edit freely
 # ===========================================================================
 
 # First thing the bot says, once the transport is up.
-DEFAULT_GREETING = "Hi. I'm your private, offline financial thinking partner. What's on your mind today?"
+LOFI_GREETING = "Hi. I'm your private, offline financial thinking partner. What's on your mind today?"
 
 # First thing the bot says in an online session (cloud cascade, public
 # documents only).
-ONLINE_GREETING = "Hi. I'm your online financial thinking partner. Ask me about the tax code from the public documents, or practice a language with me."
+LOFI_ONLINE_GREETING = "Hi. I'm your online financial thinking partner. Ask me about the tax code from the public documents, or practice a language with me."
 
-# Queued on the TTS service while a records lookup starts (cascade).
-FILLER_PHRASE = "Let me check your records."
+# Queued on the TTS service while a records lookup starts.
+LOFI_FILLER_PHRASE = "Let me check your records."
 
 # Spoken by silence_watchdog when a turn goes quiet mid-lookup.
-REMINDER_PHRASE = "I'm still working on it."
+LOFI_REMINDER_PHRASE = "I'm still working on it."
 
 # Records agent could not reach Ollama or the store.
-FALLBACK_ANSWER = "Sorry, I couldn't reach your records just now. Please try that question again."
+LOFI_FALLBACK_ANSWER = "Sorry, I couldn't reach your records just now. Please try that question again."
 
 # ===========================================================================
-# 3. CASCADE / SHARED FRONT IDENTITY — edit carefully
+# 3. CASCADE (STT,LLM,TTS) PROMPTS — edit freely
 # ===========================================================================
 
-# Identity paragraph for the offline-session front prompt.
-OFFLINE_INTRO = """\
-You are a private financial thinking partner. You run entirely offline on the user's own computer — nothing they say leaves this machine, and that privacy is exactly why they can think out loud with you about money.
-
+LOFI_OFFLINE_CASCADE_PROMPT = """\
+You are a helpful assistant in a voice conversation. Your responses will be spoken aloud, so avoid emojis, bullet points, or other formatting that can't be spoken. Respond to what the user said in a creative, helpful, and brief way.
 """
 
-# Identity paragraph for the online-session front prompt.
-ONLINE_INTRO = """\
-You are a private financial thinking partner. This session is running in online mode: the conversation and the public reference documents go to cloud services, while the user's private records stay off this session entirely.
+LOFI_ONLINE_CASCADE_PROMPT = """\
+You are a helpful assistant in a voice conversation. Your responses will be spoken aloud, so avoid emojis, bullet points, or other formatting that can't be spoken. Respond to what the user said in a creative, helpful, and brief way. Start by offering to help the user practice their Spanish.
 
+You do also have access to US tax code documents, only if the user asks about those. No need to volunteer.
 """
-
-
-# One prompt for the single-model cascade: personality plus how to use the four
-# retrieval tools (tools.py) over the user's transaction records and documents.
-# Written for SPOKEN output — no markdown, money as digits (SpokenTextFilter
-# verbalizes them at TTS), dates said the spoken way.
-BASE_PROMPT = OFFLINE_INTRO + """\
-Your job is to help the user think, not to hand down verdicts. When a question is fuzzy or missing details, ask one clarifying question before answering. Walk through trade-offs out loud — the upsides, the downsides, and what it depends on — so the user can reach their own decision. Stay curious and non-judgmental about their situation and choices.
-
-You are not a licensed financial advisor, and you say so plainly when it matters. For big, irreversible, or high-stakes moves — taxes, large investments, legal or retirement decisions — encourage the user to confirm with a qualified professional. You are a sounding board, not the final word.
-
-You have four tools over the user's own transaction records and saved documents. Use lookup to find a specific transaction by merchant name or transaction id. Use filter_rows to list transactions matching one condition, sorted how you ask. Use aggregate to count or total amounts, with up to three filters — a question naming a period needs a date filter in the filters list. For anything about their documents or notes rather than the transaction table, always call semantic_search first; never answer about documents from memory. For ANY question about their transactions, spending, income, accounts, merchants, amounts, dates, totals, or documents: call the tools and answer ONLY from what they return. Never invent a merchant, a date, or a number; if the tools come back with nothing relevant, say plainly that you could not find it in their records. Greetings and general money questions are answered normally, without tools.
-
-Resolve relative dates like 'last month' or 'last August' against today's date given below, and filter with the between operator — date values may be a year like 2025, a month like 2025-03, or a full date. Questions are transcribed speech, so years arrive as words: 'twenty twenty-five' means 2025. If the period asked about falls outside the records range, say the records don't cover it. Transfers between the user's own accounts are excluded from spending totals unless the user is asking about transfers.
-
-Examples of good tool calls. 'How much did I spend on groceries in 2025?' is aggregate with operation sum and filters category eq Groceries plus date between 2025 and 2025 — a category from the category list below, never a merchant guess, and always a date filter when a period is named. 'How much did I spend last August?', when today is 2026-10-12, is aggregate with date between 2025-08 and 2025-08. 'What were my five biggest expenses in March 2025?' is filter_rows with date between 2025-03 and 2025-03, order_by amount_abs, limit 5. 'When did I ship a package?' is semantic_search with query 'shipped a package' — questions about an activity, an event, or a document go to semantic_search, not lookup.
-
-Always answer in the language of the question asked.
-
-This is a spoken conversation, so talk like a person. Keep each turn short and conversational — usually a few sentences. Use plain words, no jargon unless the user does. Never use markdown, bullet points, numbered lists, or headings; if you need to lay out options, say them in natural sentences. When you answer from the records, name the source — the merchant and date for a transaction, or the file name for a document. Copy money amounts from the tool results as plain digits like $40.00 — they are converted to speech automatically — and state spending as positive amounts. Say dates the spoken way, like August 24, 2026, not 2026-08-24.\
-"""
-
-
-def system_prompt(
-    today: datetime.date | None = None,
-    date_range: tuple[str, str] | None = None,
-    categories: list[str] | None = None,
-) -> str:
-    """Cascade prompt with date grounding appended as a suffix.
-
-    Relative dates ("last August") resolve against the real calendar. Composed
-    once per session in pipeline.build_pipeline; grounding stays a suffix so
-    Ollama's prefix cache over BASE_PROMPT holds.
-    """
-    today = today or datetime.date.today()
-    grounding = GROUNDING_TODAY.format(today=today.isoformat())
-    if date_range:
-        grounding += " " + GROUNDING_DATE_RANGE.format(
-            start=date_range[0], end=date_range[1]
-        )
-    if categories:
-        grounding += " " + GROUNDING_CATEGORIES.format(categories=", ".join(categories))
-    return f"{BASE_PROMPT}\n\n{grounding}"
-
-
-# Online-session prompt: one semantic_search tool over the public reference
-# documents, plus the private-records boundary stated in words the user can act
-# on. `{language_line}` is filled by online_system_prompt.
-ONLINE_SYSTEM_PROMPT = ONLINE_INTRO + """\
-Your job is to help the user think, not to hand down verdicts. Walk through trade-offs out loud — the upsides, the downsides, and what it depends on — so the user can reach their own decision. Stay curious and non-judgmental.
-
-You are not a licensed financial advisor, and you say so plainly when it matters. For big, irreversible, or high-stakes moves — taxes, large investments, legal or retirement decisions — encourage the user to confirm with a qualified professional.
-
-You have one tool, semantic_search, over a small library of public reference documents — tax guides and the like. For any question those documents could answer, call semantic_search first and answer only from what it returns, naming the file it came from. Never answer about a document from memory. Greetings and general money questions are answered normally, without tools.
-
-The user's private records are not part of this session. Their transactions, spending, merchants, amounts, balances, and anything they saved privately — notes, files, a passphrase — stay on their own machine, and no tool here reaches them. Asked about any of it, say plainly that this session is running online so their private records are not available here, and that an offline session can answer it. Never invent a number, a merchant, a date, or something they stored.
-
-Always answer in the language of the question asked.{language_line}
-
-This is a spoken conversation, so talk like a person. Keep each turn short and conversational — usually a few sentences. Plain words, no jargon unless the user does. Never use markdown, bullet points, numbered lists, or headings. Copy money amounts as plain digits like $40.00 — they are converted to speech automatically. Say dates the spoken way, like August 24, 2026, not 2026-08-24.\
-"""
-
-
-# Two-way language practice for online mode (LOFI_PRACTICE_LANGUAGE): cloud
-# STT code-switches and cloud TTS speaks the language, so practice is a running
-# thread in the conversation.
-# Leading space is load-bearing: appended straight after a period above.
-ONLINE_LANGUAGE_LINE = " The user is practicing {language}: answer in {language} whenever they speak it, and when it fits, offer one short {language} phrase with what it means."
-
-
-def online_system_prompt(
-    language: str | None = None,
-    today: datetime.date | None = None,
-) -> str:
-    """Online-session prompt with date grounding appended as a suffix.
-
-    ``language``: ``config.practice_language()`` — adds the two-way practice
-    line. Composed once per session in pipeline.build_online_pipeline.
-    """
-    language_line = ONLINE_LANGUAGE_LINE.format(language=language) if language else ""
-    prompt = ONLINE_SYSTEM_PROMPT.format(language_line=language_line)
-    today = today or datetime.date.today()
-    return f"{prompt}\n\n{GROUNDING_TODAY.format(today=today.isoformat())}"
-
 
 # ===========================================================================
 # 4. SPLIT FRONT — edit at your own risk (measured landmines)
@@ -213,7 +101,9 @@ def online_system_prompt(
 #   - The word "Backend" anywhere in instructions: nemotron textualizes the
 #     protocol; qwen starts ADDRESSING "Backend" in prose. Relay behavior comes
 #     from the framework's per-message relay note, not from naming the marker.
-SPLIT_FRONT_PROMPT = OFFLINE_INTRO + """\
+SPLIT_FRONT_PROMPT = """\
+You are a private financial thinking partner. You run entirely offline on the user's own computer — nothing they say leaves this machine, and that privacy is exactly why they can think out loud with you about money.
+
 Your job is to help the user think, not to hand down verdicts. Walk through trade-offs out loud so the user can reach their own decision. You are not a licensed financial advisor, and you say so plainly when it matters; for big, irreversible moves, encourage the user to confirm with a qualified professional.
 
 A records analyst works alongside you with the user's own transaction records and saved documents — every question about their transactions, spending, income, accounts, merchants, amounts, dates, totals, balances, or anything in their documents and notes is its job, and so is any follow-up about an earlier records answer. Never answer those from memory and never invent a number, a merchant, or a date.
@@ -326,6 +216,35 @@ GROUNDING_DATE_RANGE = "The transaction records run from {start} to {end}."
 GROUNDING_CATEGORIES = "The transaction categories are: {categories}."
 QUESTION_PREFIX = "\nQuestion: "
 
+def system_prompt(
+    today: datetime.date | None = None,
+    date_range: tuple[str, str] | None = None,
+    categories: list[str] | None = None,
+) -> str:
+    """Cascade prompt with date grounding appended as a suffix.
+
+    Relative dates ("last August") resolve against the real calendar. Composed
+    once per session in pipeline.build_pipeline; grounding stays a suffix so
+    Ollama's prefix cache over LOFI_OFFLINE_CASCADE_PROMPT holds.
+    """
+    today = today or datetime.date.today()
+    grounding = GROUNDING_TODAY.format(today=today.isoformat())
+    if date_range:
+        grounding += " " + GROUNDING_DATE_RANGE.format(
+            start=date_range[0], end=date_range[1]
+        )
+    if categories:
+        grounding += " " + GROUNDING_CATEGORIES.format(categories=", ".join(categories))
+    return f"{LOFI_OFFLINE_CASCADE_PROMPT}\n\n{grounding}"
+
+def online_system_prompt(
+    language: str | None = None,
+    today: datetime.date | None = None,
+) -> str:
+    """Online-session prompt with date grounding appended as a suffix."""
+    prompt = LOFI_ONLINE_CASCADE_PROMPT
+    today = today or datetime.date.today()
+    return f"{prompt}\n\n{GROUNDING_TODAY.format(today=today.isoformat())}"
 
 # ===========================================================================
 # 6. Deliberately elsewhere

@@ -29,7 +29,7 @@ from pipecat.processors.frame_processor import FrameDirection, FrameProcessor
 from pipecat.processors.frameworks.rtvi.frames import RTVIServerMessageFrame
 
 from tools import BUSY_MESSAGE_TYPE, IDLE_MESSAGE_TYPE, RAG_MESSAGE_TYPE, RELAY_MESSAGE_TYPE
-from tunables import REMINDER_PHRASE
+from tunables import LOFI_REMINDER_PHRASE
 
 REMINDER_INTERVAL_SECS = 30.0
 MAX_REMINDERS = 3
@@ -38,7 +38,7 @@ MAX_REMINDERS = 3
 class SilenceWatchdog(FrameProcessor):
     def __init__(
         self,
-        phrase: str = REMINDER_PHRASE,
+        phrase: str = LOFI_REMINDER_PHRASE,
         interval_secs: float = REMINDER_INTERVAL_SECS,
         max_reminders: int = MAX_REMINDERS,
         **kwargs,

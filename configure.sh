@@ -947,7 +947,7 @@ if (( INTERACTIVE )); then
   print_slot_reccos llm
   print_catalog_table numbered
   OLD_IFS="$IFS"; IFS=$'\n'; CATALOG_ROWS=( $(sorted_catalog_rows) ); IFS="$OLD_IFS"
-  # must match tunables.DEFAULT_LLM_MODEL (shell can't import Python)
+  # must match config.llm_model()'s default (shell can't import Python)
   read -r -p "choose LLM [default ${LOFI_LLM_MODEL:-qwen2.5:7b}]: " ans || ans=""
   if [[ -z "$ans" ]]; then
     CHOSEN_LLM="${LOFI_LLM_MODEL:-qwen2.5:7b}"
@@ -1165,7 +1165,7 @@ else
 fi
 
 # --- RAM vs the configured LLM (only speak up if something's off) ------------
-# must match tunables.DEFAULT_LLM_MODEL (shell can't import Python)
+# must match config.llm_model()'s default (shell can't import Python)
 LOFI_LLM_MODEL="${LOFI_LLM_MODEL:-qwen2.5:7b}"
 
 # Best qwen2.5 tag for this much unified memory, leaving headroom for Whisper

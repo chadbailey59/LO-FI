@@ -46,7 +46,7 @@ LOFI_REPO_ROOT="${REPO_ROOT}"
 
 OLLAMA_HOST="${OLLAMA_HOST:-127.0.0.1:11434}"
 export OLLAMA_HOST
-# must match tunables.DEFAULT_LLM_MODEL (shell can't import Python)
+# must match config.llm_model()'s default (shell can't import Python)
 LOFI_LLM_MODEL="${LOFI_LLM_MODEL:-qwen2.5:7b}"
 
 # Conversation model and the embedder stay co-resident; a swap

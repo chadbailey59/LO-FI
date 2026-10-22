@@ -632,7 +632,7 @@ DELEGATE_SCHEMA = {
 # (pipeline.build_records_connector: respond_on_delegate off), so these
 # histories replay the post-fix shape.
 FOLLOWUP_HISTORY = [
-    {"role": "assistant", "content": tunables.DEFAULT_GREETING},
+    {"role": "assistant", "content": tunables.LOFI_GREETING},
     {
         "role": "user",
         "content": "Can you tell me how many Whole Foods transactions I had in August of 2026?",

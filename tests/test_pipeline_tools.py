@@ -77,9 +77,9 @@ def test_system_prompt_is_grounded_when_index_present(db, monkeypatch, stub_serv
     first, last = store.date_range(db)
     assert f"The transaction records run from {first} to {last}." in content
     assert "The transaction categories are: " in content
-    assert content.startswith(tunables.BASE_PROMPT)
+    assert content.startswith(tunables.LOFI_OFFLINE_CASCADE_PROMPT)
     pinned = tunables.system_prompt(datetime.date(2026, 10, 12), (first, last))
-    assert pinned.startswith(tunables.BASE_PROMPT)
+    assert pinned.startswith(tunables.LOFI_OFFLINE_CASCADE_PROMPT)
     assert pinned.endswith(f"Today's date is 2026-10-12. The transaction records run from {first} to {last}.")
 
 
@@ -119,8 +119,8 @@ def test_filler_registered_on_function_calls_started(db, monkeypatch, stub_servi
 
 
 def test_filler_phrase_is_short_spoken_text(db):
-    assert pipeline.FILLER_PHRASE.endswith(".")
-    assert "{" not in pipeline.FILLER_PHRASE
+    assert pipeline.LOFI_FILLER_PHRASE.endswith(".")
+    assert "{" not in pipeline.LOFI_FILLER_PHRASE
 
 
 def test_filler_handler_pushes_busy_message_and_filler(db, monkeypatch, stub_services):
@@ -155,7 +155,7 @@ def test_filler_handler_pushes_busy_message_and_filler(db, monkeypatch, stub_ser
     busy = [f for f in built.llm.frames if isinstance(f, RTVIServerMessageFrame)]
     assert busy and busy[0].data == {"type": pipeline.BUSY_MESSAGE_TYPE}
     assert [f.text for f in built.tts.queued if isinstance(f, TTSSpeakFrame)] == [
-        pipeline.FILLER_PHRASE
+        pipeline.LOFI_FILLER_PHRASE
     ]
 
 
@@ -202,7 +202,7 @@ def test_split_architecture_builds_llm_with_backend(db, monkeypatch):
 
     # The front holds no records tools — delegate is a builtin, not a context tool.
     assert tool_names(built.context) == []
-    assert built.context.messages[0]["content"].startswith(tunables.OFFLINE_INTRO)
+    assert built.context.messages[0]["content"].startswith(tunables.SPLIT_FRONT_PROMPT)
 
     lwb = next(p for p in built.pipeline._processors if isinstance(p, LLMWithBackend))
     worker = lwb.backend
@@ -376,7 +376,7 @@ def test_cascade_filler_is_spoken_but_kept_out_of_context(db, monkeypatch, stub_
     asyncio.run(handler(built.llm, []))
 
     fillers = [f for f in built.tts.queued if isinstance(f, TTSSpeakFrame)]
-    assert [f.text for f in fillers] == [pipeline.FILLER_PHRASE]
+    assert [f.text for f in fillers] == [pipeline.LOFI_FILLER_PHRASE]
     # Canned waiting lines in the context teach a small front model to answer
     # with waiting lines (and then invent results) instead of delegating.
     assert fillers[0].append_to_context is False
@@ -398,7 +398,7 @@ def test_split_speaks_canned_filler_out_of_context(db, monkeypatch):
     handler = front._event_handlers["on_function_calls_started"].handlers[0]
     asyncio.run(handler(front, []))
     fillers = [f for f in built.tts.queued if isinstance(f, TTSSpeakFrame)]
-    assert [f.text for f in fillers] == [pipeline.FILLER_PHRASE]
+    assert [f.text for f in fillers] == [pipeline.LOFI_FILLER_PHRASE]
     # Waiting lines in the context teach the temp-0 front to answer records
     # questions with waiting lines and no tool call (measured 2026-10-20).
     assert fillers[0].append_to_context is False

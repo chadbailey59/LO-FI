@@ -119,8 +119,10 @@ def test_online_prompt_is_the_online_story(
 ):
     built = pipeline.build_pipeline(fake_transport(), mode="online")
     prompt = built.context.messages[0]["content"]
-    assert prompt.startswith(tunables.ONLINE_INTRO)
-    assert tunables.OFFLINE_INTRO not in prompt
+    assert prompt.startswith(
+        "You are a private financial thinking partner. This session is running in online mode"
+    )
+    assert "You run entirely offline" not in prompt
     assert "{language_line}" not in prompt
 
 
@@ -139,7 +141,9 @@ def test_mode_default_and_garbage_offline(tmp_path, monkeypatch, stub_offline_se
         pipeline.build_pipeline(fake_transport(), mode="garbage"),
     ):
         prompt = built.context.messages[0]["content"]
-        assert prompt.startswith(tunables.OFFLINE_INTRO)
+        assert prompt.startswith(
+            "You are a private financial thinking partner. You run entirely offline"
+        )
 
 
 def test_online_missing_public_db_degrades(

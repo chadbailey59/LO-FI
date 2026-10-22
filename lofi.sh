@@ -59,7 +59,7 @@ case "$STATE_DIR" in /*) ;; *) STATE_DIR="$REPO/$STATE_DIR" ;; esac
 
 OLLAMA_HOST="${OLLAMA_HOST:-127.0.0.1:11434}"
 OLLAMA_BASE="http://${OLLAMA_HOST}"
-# must match tunables.DEFAULT_LLM_MODEL (shell can't import Python)
+# must match config.llm_model()'s default (shell can't import Python)
 LOFI_LLM_MODEL="${LOFI_LLM_MODEL:-qwen2.5:7b}"
 LOFI_WEB_PORT="${LOFI_WEB_PORT:-7860}"
 WEB_URL="http://localhost:${LOFI_WEB_PORT}"

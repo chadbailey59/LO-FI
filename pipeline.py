@@ -62,7 +62,7 @@ from tunables import (
     COMPACT_PAIRING_INSTRUCTION,
     DELEGATE_TOOL_DESCRIPTION,
     DELEGATE_TOOL_NAME,
-    FILLER_PHRASE,
+    LOFI_FILLER_PHRASE,
     QUESTION_PREFIX,
     SPLIT_FRONT_PROMPT,
     online_system_prompt,
@@ -443,7 +443,7 @@ def build_pipeline(transport: BaseTransport, mode: str = OFFLINE_MODE) -> BuiltB
     @front.event_handler("on_function_calls_started")
     async def on_function_calls_started(service, function_calls):
         await service.push_frame(RTVIServerMessageFrame(data={"type": BUSY_MESSAGE_TYPE}))
-        await tts.queue_frame(TTSSpeakFrame(FILLER_PHRASE, append_to_context=False))
+        await tts.queue_frame(TTSSpeakFrame(LOFI_FILLER_PHRASE, append_to_context=False))
 
     pipeline = Pipeline(
         [

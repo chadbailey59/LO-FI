@@ -36,28 +36,15 @@ import os
 import sys
 from pathlib import Path
 
-# Model/voice/greeting defaults live in tunables.py — THE file users edit. The
-# from-import keeps `config.DEFAULT_*` / `config.IS_APPLE_SILICON` working for
-# services.py and the tests, and the getters below still let LOFI_* env vars win.
+# Engine and greeting defaults live in tunables.py — THE file users edit.
+# Model tags and voice ids default inline in the getters below; `.lofirc` /
+# LOFI_* env vars override them.
 from tunables import (
     IS_APPLE_SILICON,
     DEFAULT_STT_ENGINE,
     DEFAULT_TTS_ENGINE,
-    DEFAULT_WHISPER_MODEL,
-    DEFAULT_FASTER_WHISPER_MODEL,
-    DEFAULT_MOONSHINE_MODEL,
-    DEFAULT_PIPER_VOICE,
-    DEFAULT_KOKORO_VOICE,
-    DEFAULT_LLM_MODEL,
-    DEFAULT_RAG_LLM_MODEL,
-    DEFAULT_EMBED_MODEL,
-    DEFAULT_ONLINE_EMBED_MODEL,
-    DEFAULT_ONLINE_LLM_MODEL,
-    DEFAULT_ONLINE_STT_MODEL,
-    DEFAULT_ONLINE_TTS_VOICE,
-    DEFAULT_ARCHITECTURE,
-    DEFAULT_GREETING,
-    ONLINE_GREETING,
+    LOFI_GREETING,
+    LOFI_ONLINE_GREETING,
 )
 
 REPO_ROOT = Path(__file__).resolve().parent
@@ -309,7 +296,7 @@ def whisper_model() -> str:
     Other members: TINY, MEDIUM, LARGE_V3. Must match a member the prefetch
     downloaded (``scripts/prefetch_models.py`` reads the same var).
     """
-    return _get("LOFI_WHISPER_MODEL", DEFAULT_WHISPER_MODEL)
+    return _get("LOFI_WHISPER_MODEL", "LARGE_V3_TURBO")
 
 
 def faster_whisper_model() -> str:
@@ -320,7 +307,7 @@ def faster_whisper_model() -> str:
     LARGE_V3_TURBO, DISTIL_LARGE_V2, DISTIL_MEDIUM_EN (English-only).
     Weights download from Hugging Face on first use (cached under HF_HOME).
     """
-    return _get("LOFI_FASTER_WHISPER_MODEL", DEFAULT_FASTER_WHISPER_MODEL)
+    return _get("LOFI_FASTER_WHISPER_MODEL", "DISTIL_MEDIUM_EN")
 
 
 def moonshine_model() -> str:
@@ -331,7 +318,7 @@ def moonshine_model() -> str:
     BASE_STREAMING, SMALL_STREAMING, MEDIUM_STREAMING. Weights download from
     the Moonshine hub on first use.
     """
-    return _get("LOFI_MOONSHINE_MODEL", DEFAULT_MOONSHINE_MODEL)
+    return _get("LOFI_MOONSHINE_MODEL", "SMALL_STREAMING")
 
 
 def piper_voice() -> str:
@@ -341,7 +328,7 @@ def piper_voice() -> str:
     (huggingface.co/rhasspy/piper-voices) works; the ~60 MB voice model
     downloads on first use into ``$LOFI_MODEL_DIR/piper/``.
     """
-    return _get("LOFI_PIPER_VOICE", DEFAULT_PIPER_VOICE)
+    return _get("LOFI_PIPER_VOICE", "en_US-lessac-medium")
 
 
 def piper_download_dir() -> str:
@@ -367,9 +354,11 @@ def llm_model() -> str:
     """Ollama model tag for the conversation LLM (default ``qwen2.5:7b``).
 
     The same string ``scripts/run_ollama.sh`` uses to ``ollama pull``, so the
-    bot and the pull agree on which model is served.
+    bot and the pull agree on which model is served. qwen2.5:7b is the smallest
+    front that delegates follow-ups reliably on the split architecture (3/3;
+    3b/4b fronts drop them and fabricate).
     """
-    return _get("LOFI_LLM_MODEL", DEFAULT_LLM_MODEL)
+    return _get("LOFI_LLM_MODEL", "qwen2.5:7b")
 
 
 def ollama_base_url() -> str:
@@ -396,7 +385,7 @@ def embed_model() -> str:
     Served by the same Ollama instance as the LLM; pull it with
     ``ollama pull nomic-embed-text``.
     """
-    return _get("LOFI_EMBED_MODEL", DEFAULT_EMBED_MODEL)
+    return _get("LOFI_EMBED_MODEL", "nomic-embed-text")
 
 
 def rag_data_dir() -> str:
@@ -416,30 +405,34 @@ def online_embed_model() -> str:
     Used only by the public (online-mode) index build and by online sessions
     retrieving from it.
     """
-    return _get("LOFI_ONLINE_EMBED_MODEL", DEFAULT_ONLINE_EMBED_MODEL)
+    return _get("LOFI_ONLINE_EMBED_MODEL", "text-embedding-3-small")
 
 
 def online_llm_model() -> str:
     """OpenAI chat model for online sessions (LOFI_ONLINE_LLM_MODEL, default
     ``gpt-4o-mini``).
     """
-    return _get("LOFI_ONLINE_LLM_MODEL", DEFAULT_ONLINE_LLM_MODEL)
+    return _get("LOFI_ONLINE_LLM_MODEL", "gpt-4o-mini")
 
 
 def online_stt_model() -> str:
     """Deepgram model for online sessions (LOFI_ONLINE_STT_MODEL, default
     ``nova-3``).
+
+    nova-3 transcribes with ``language="multi"`` (services.build_online_stt),
+    so an English↔Spanish turn lands on one connection.
     """
-    return _get("LOFI_ONLINE_STT_MODEL", DEFAULT_ONLINE_STT_MODEL)
+    return _get("LOFI_ONLINE_STT_MODEL", "nova-3")
 
 
 def online_tts_voice() -> str:
     """Cartesia voice id for online sessions (LOFI_ONLINE_TTS_VOICE).
 
-    The default speaks Spanish from the same id, so the language-practice beat
-    needs no voice swap.
+    The default — Cartesia's cross-lingual voice from pipecat's own examples —
+    speaks Spanish from the same id, so the language-practice beat needs no
+    voice swap.
     """
-    return _get("LOFI_ONLINE_TTS_VOICE", DEFAULT_ONLINE_TTS_VOICE)
+    return _get("LOFI_ONLINE_TTS_VOICE", "86e30c1d-714b-4074-a1f2-1cb6b552fb49")
 
 
 def missing_online_keys() -> list[str]:
@@ -510,7 +503,7 @@ def rag_index_dir() -> str:
 
 def rag_llm_model() -> str:
     """LLM with backend needs a model that emits real API tool calls."""
-    return _get("LOFI_RAG_LLM_MODEL", DEFAULT_RAG_LLM_MODEL)
+    return _get("LOFI_RAG_LLM_MODEL", "qwen3:8b")
 
 
 def practice_language() -> str:
@@ -532,7 +525,7 @@ def architecture() -> str:
     ``cascade``: one model holds the four retrieval tools directly — the
     simple, stable fallback.
     """
-    value = _get("LOFI_ARCHITECTURE", DEFAULT_ARCHITECTURE).strip().lower()
+    value = _get("LOFI_ARCHITECTURE", "llmwithbackend").strip().lower()
     if value not in ("cascade", "llmwithbackend"):
         raise SystemExit(
             f"\n✖ Unknown LOFI_ARCHITECTURE '{value}' — valid: llmwithbackend (default), cascade\n"
@@ -587,7 +580,7 @@ def kokoro_voice() -> str:
     Kokoro's shipped ``Settings.voice`` default is ``None`` (unsynthesizable),
     so the bot always supplies an explicit id.
     """
-    return _get("LOFI_KOKORO_VOICE", DEFAULT_KOKORO_VOICE)
+    return _get("LOFI_KOKORO_VOICE", "af_heart")
 
 
 def kokoro_model_path() -> str:
@@ -618,12 +611,12 @@ def output_device_index() -> int | None:
 
 def greeting() -> str:
     """Opening line the bot speaks on startup (LOFI_GREETING)."""
-    return _get("LOFI_GREETING", DEFAULT_GREETING)
+    return _get("LOFI_GREETING", LOFI_GREETING)
 
 
 def online_greeting() -> str:
     """Opening line an online session speaks (LOFI_ONLINE_GREETING)."""
-    return _get("LOFI_ONLINE_GREETING", ONLINE_GREETING)
+    return _get("LOFI_ONLINE_GREETING", LOFI_ONLINE_GREETING)
 
 
 def greeting_delay_secs() -> float:
