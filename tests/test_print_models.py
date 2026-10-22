@@ -206,7 +206,7 @@ def test_model_entries_lists_the_roles(monkeypatch):
 def test_model_entries_add_analyst_row_for_split(monkeypatch):
     from scripts import print_models
 
-    monkeypatch.setenv("LOFI_ARCHITECTURE", "split")
+    monkeypatch.setenv("LOFI_ARCHITECTURE", "llmwithbackend")
     monkeypatch.setattr(print_models, "_ollama_file", lambda tag: None)
     entries = print_models.model_entries()
     by_role = {e["role"]: e for e in entries}

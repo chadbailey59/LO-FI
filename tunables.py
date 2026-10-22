@@ -79,7 +79,7 @@ DEFAULT_ONLINE_STT_MODEL = "nova-3"
 # Cartesia's cross-lingual voice from pipecat's own examples — speaks Spanish
 # from the same id, so the language practice beat needs no voice swap.
 DEFAULT_ONLINE_TTS_VOICE = "86e30c1d-714b-4074-a1f2-1cb6b552fb49"
-DEFAULT_ARCHITECTURE = "split"
+DEFAULT_ARCHITECTURE = "llmwithbackend"
 
 # ===========================================================================
 # 2. SPOKEN CANNED LINES — edit freely
@@ -257,9 +257,9 @@ ONLINE_SYSTEM_PROMPT = (
 )
 
 
-# Two-way language practice for online mode (LOFI_WAIT_LESSON_LANGUAGE): cloud
+# Two-way language practice for online mode (LOFI_PRACTICE_LANGUAGE): cloud
 # STT code-switches and cloud TTS speaks the language, so practice is a running
-# thread in the conversation rather than the offline wait-window lesson.
+# thread in the conversation.
 ONLINE_LANGUAGE_LINE = (
     " The user is practicing {language}: answer in {language} whenever they speak "
     "it, and when it fits, offer one short {language} phrase with what it means."
@@ -272,7 +272,7 @@ def online_system_prompt(
 ) -> str:
     """Online-session prompt with date grounding appended as a suffix.
 
-    ``language``: ``config.wait_lesson_language()`` — adds the two-way practice
+    ``language``: ``config.practice_language()`` — adds the two-way practice
     line. Composed once per session in pipeline.build_online_pipeline.
     """
     language_line = ONLINE_LANGUAGE_LINE.format(language=language) if language else ""
@@ -386,24 +386,12 @@ COMPACT_PAIRING_INSTRUCTION = (
 )
 
 
-# Wait-window mini-lesson (LOFI_WAIT_LESSON_LANGUAGE, split only): while the
-# analyst works, the watchdog's first reminder has the front teach one phrase
-# tied to the user's question. Short and bounded — the analyst's answer queues
-# right behind whatever the lesson generates.
-WAIT_LESSON_NUDGE = (
-    "The records lookup is still running; its result arrives soon. While the "
-    "user waits, teach them one short beginner {language} phrase related to "
-    "what they just asked: the phrase, how it sounds, and what it means — one "
-    "sentence each, then stop. Do not mention the lookup or this note."
-)
-
-
 # ===========================================================================
 # 5. RECORDS ANALYST — edit carefully (byte-stable for KV-prefix cache)
 # ===========================================================================
 
 # System prompt for the records analyst — the thinking half of the split
-# architecture (LOFI_ARCHITECTURE=split).
+# architecture (LOFI_ARCHITECTURE=llmwithbackend).
 #
 # It never talks to the user directly: rag_agent drives it over Ollama's native
 # API with reasoning ON, it calls the four typed retrieval tools, and composes

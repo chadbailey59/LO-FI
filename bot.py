@@ -109,7 +109,7 @@ def _ollama_models_to_check() -> list[str]:
     """Models that must be pulled in the local Ollama: the front model, plus
     analyst (and fast analyst) when the architecture runs one."""
     models: list[str] = [config.llm_model()]
-    if config.architecture() == "split":
+    if config.architecture() == "llmwithbackend":
         for model in (config.rag_llm_model(), config.rag_fast_llm_model()):
             if model not in models:
                 models.append(model)

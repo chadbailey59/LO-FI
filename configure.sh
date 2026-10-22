@@ -1018,9 +1018,9 @@ if (( INTERACTIVE )); then
   echo "     LOFI_TTS_ENGINE=${CHOSEN_TTS_ENGINE}"
   echo "     ${TTS_VOICE_VAR}=${CHOSEN_VOICE}"
   echo
-  echo "  split architecture (the default: fast front + thinking analyst backend) knobs:"
-  echo "     LOFI_ARCHITECTURE=split                  # already the default"
-  echo "     LOFI_RAG_LLM_MODEL=qwen3:8b              # the analyst; needs real API tool calls (nemotron-3-nano fails as split backend)"
+  echo "  llmwithbackend architecture (the default: fast front + thinking analyst backend) knobs:"
+  echo "     LOFI_ARCHITECTURE=llmwithbackend         # already the default"
+  echo "     LOFI_RAG_LLM_MODEL=qwen3:8b              # the analyst; needs real API tool calls (nemotron-3-nano fails as the analyst backend)"
   echo
   if (( ! APPROVED )); then
     read -r -p "combo was rejected — continue anyway? [y/N] " ans || ans=""

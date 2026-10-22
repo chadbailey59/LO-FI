@@ -125,8 +125,8 @@ def test_online_prompt_is_the_online_story(
 
 
 def test_online_prompt_invites_two_way_practice_when_language_set(monkeypatch):
-    monkeypatch.setenv("LOFI_WAIT_LESSON_LANGUAGE", "Spanish")
-    with_language = tunables.online_system_prompt(language=config.wait_lesson_language())
+    monkeypatch.setenv("LOFI_PRACTICE_LANGUAGE", "Spanish")
+    with_language = tunables.online_system_prompt(language=config.practice_language())
     assert "Spanish" in with_language
     assert "{language}" not in with_language
     assert "Spanish" not in tunables.online_system_prompt()

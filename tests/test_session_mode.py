@@ -124,7 +124,7 @@ def test_local_preflights_run_by_default(monkeypatch):
 
 
 def test_offline_connect_missing_models_lists_all(monkeypatch):
-    monkeypatch.setenv("LOFI_ARCHITECTURE", "split")
+    monkeypatch.setenv("LOFI_ARCHITECTURE", "llmwithbackend")
     monkeypatch.setenv("LOFI_LLM_MODEL", "front-model:8b")
     monkeypatch.setenv("LOFI_RAG_LLM_MODEL", "analyst-model:27b")
     monkeypatch.setenv("LOFI_RAG_FAST_LLM_MODEL", "analyst-model:27b")
@@ -139,7 +139,7 @@ def test_offline_connect_missing_models_lists_all(monkeypatch):
 
 
 def test_offline_connect_with_every_model_pulled_is_allowed(monkeypatch):
-    monkeypatch.setenv("LOFI_ARCHITECTURE", "split")
+    monkeypatch.setenv("LOFI_ARCHITECTURE", "llmwithbackend")
     monkeypatch.setenv("LOFI_LLM_MODEL", "front-model:8b")
     monkeypatch.setenv("LOFI_RAG_LLM_MODEL", "analyst-model:27b")
     monkeypatch.setenv("LOFI_RAG_FAST_LLM_MODEL", "analyst-model:27b")

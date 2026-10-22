@@ -22,7 +22,7 @@ def test_webrtc_transport_omitted_without_aiortc(monkeypatch):
 
 
 def test_split_architecture_adds_analyst_row(monkeypatch):
-    monkeypatch.setenv("LOFI_ARCHITECTURE", "split")
+    monkeypatch.setenv("LOFI_ARCHITECTURE", "llmwithbackend")
     monkeypatch.setenv("LOFI_RAG_LLM_MODEL", "nemotron-3-nano:4b")
     message = _lofi_config_message()
     roles = [m["role"] for m in message["models"]]
@@ -80,7 +80,7 @@ def test_online_model_entries_roles(monkeypatch):
 
 def test_model_entries_missing_flag(monkeypatch, tmp_path):
     """A role whose weights resolve to nothing is flagged for the panel."""
-    monkeypatch.setenv("LOFI_ARCHITECTURE", "split")
+    monkeypatch.setenv("LOFI_ARCHITECTURE", "llmwithbackend")
     weights = tmp_path / "weights.bin"
     weights.write_text("x")
     monkeypatch.setattr(print_models, "_ollama_file", lambda tag: None)

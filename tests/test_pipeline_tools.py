@@ -196,7 +196,7 @@ def test_split_architecture_builds_llm_with_backend(db, monkeypatch):
 
     for name in ("build_stt", "build_tts", "build_vad_processor"):
         monkeypatch.setattr(pipeline, name, lambda: FrameProcessor())
-    monkeypatch.setenv("LOFI_ARCHITECTURE", "split")
+    monkeypatch.setenv("LOFI_ARCHITECTURE", "llmwithbackend")
     monkeypatch.setenv("LOFI_RAG_DB", str(db))
     built = pipeline.build_pipeline(fake_transport())
 
@@ -221,7 +221,7 @@ def test_split_frontend_gets_domain_named_delegate(db, monkeypatch):
 
     for name in ("build_stt", "build_tts", "build_vad_processor"):
         monkeypatch.setattr(pipeline, name, lambda: FrameProcessor())
-    monkeypatch.setenv("LOFI_ARCHITECTURE", "split")
+    monkeypatch.setenv("LOFI_ARCHITECTURE", "llmwithbackend")
     monkeypatch.setenv("LOFI_RAG_DB", str(db))
     built = pipeline.build_pipeline(fake_transport())
 
@@ -259,7 +259,7 @@ def test_backend_transform_strips_think_and_is_awaitable(db):
 def test_split_pipeline_includes_backend_tool_panel(db, monkeypatch):
     for name in ("build_stt", "build_tts", "build_vad_processor"):
         monkeypatch.setattr(pipeline, name, lambda: FrameProcessor())
-    monkeypatch.setenv("LOFI_ARCHITECTURE", "split")
+    monkeypatch.setenv("LOFI_ARCHITECTURE", "llmwithbackend")
     monkeypatch.setenv("LOFI_RAG_DB", str(db))
     built = pipeline.build_pipeline(fake_transport())
     assert any(isinstance(p, pipeline.BackendToolPanel) for p in built.pipeline._processors)
@@ -386,7 +386,7 @@ def test_split_speaks_canned_filler_out_of_context(db, monkeypatch):
     for name in ("build_stt", "build_vad_processor"):
         monkeypatch.setattr(pipeline, name, lambda: FrameProcessor())
     monkeypatch.setattr(pipeline, "build_tts", RecordingTTSService)
-    monkeypatch.setenv("LOFI_ARCHITECTURE", "split")
+    monkeypatch.setenv("LOFI_ARCHITECTURE", "llmwithbackend")
     monkeypatch.setenv("LOFI_RAG_DB", str(db))
     built = pipeline.build_pipeline(fake_transport())
 
@@ -516,31 +516,6 @@ def test_watchdog_reminder_skips_context():
     assert reminders and all(f.append_to_context is False for f in reminders)
 
 
-def _watchdog_of(built):
-    from silence_watchdog import SilenceWatchdog
-
-    return next(p for p in built.pipeline._processors if isinstance(p, SilenceWatchdog))
-
-
-def test_wait_lesson_not_wired_on_cascade(db, monkeypatch, stub_services):
-    monkeypatch.setenv("LOFI_RAG_DB", str(db))
-    monkeypatch.setenv("LOFI_WAIT_LESSON_LANGUAGE", "Spanish")
-    assert _watchdog_of(pipeline.build_pipeline(fake_transport()))._lesson is None
-
-
-def test_wait_lesson_wired_on_split_with_language(db, monkeypatch):
-    for name in ("build_stt", "build_tts", "build_vad_processor"):
-        monkeypatch.setattr(pipeline, name, lambda: FrameProcessor())
-    monkeypatch.setenv("LOFI_ARCHITECTURE", "split")
-    monkeypatch.setenv("LOFI_RAG_DB", str(db))
-
-    monkeypatch.delenv("LOFI_WAIT_LESSON_LANGUAGE", raising=False)
-    assert _watchdog_of(pipeline.build_pipeline(fake_transport()))._lesson is None
-
-    monkeypatch.setenv("LOFI_WAIT_LESSON_LANGUAGE", "Spanish")
-    assert _watchdog_of(pipeline.build_pipeline(fake_transport()))._lesson is not None
-
-
 def test_backend_tool_panel_announces_pending_call(db):
     """Started/in-progress phases reach the UI so a slow lookup shows activity."""
     import asyncio
@@ -642,7 +617,7 @@ def test_backend_tool_panel_announces_pending_call(db):
 def test_split_pipeline_warms_the_analyst(db, monkeypatch):
     for name in ("build_stt", "build_tts", "build_vad_processor"):
         monkeypatch.setattr(pipeline, name, lambda: FrameProcessor())
-    monkeypatch.setenv("LOFI_ARCHITECTURE", "split")
+    monkeypatch.setenv("LOFI_ARCHITECTURE", "llmwithbackend")
     monkeypatch.setenv("LOFI_RAG_DB", str(db))
     calls: list[int] = []
     monkeypatch.setattr(services, "warm_analyst", lambda: calls.append(1))

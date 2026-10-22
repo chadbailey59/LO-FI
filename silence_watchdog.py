@@ -32,9 +32,6 @@ from tunables import REMINDER_PHRASE
 
 REMINDER_INTERVAL_SECS = 30.0
 MAX_REMINDERS = 3
-# Lesson mode fires its first reminder early so the lesson lands before a
-# fast analyst answer (~25s+) closes the window.
-LESSON_FIRST_INTERVAL_SECS = 12.0
 
 
 class SilenceWatchdog(FrameProcessor):
@@ -43,17 +40,12 @@ class SilenceWatchdog(FrameProcessor):
         phrase: str = REMINDER_PHRASE,
         interval_secs: float = REMINDER_INTERVAL_SECS,
         max_reminders: int = MAX_REMINDERS,
-        lesson=None,
         **kwargs,
     ):
-        """``lesson``: optional async callback; when set and a records lookup
-        is in flight, the first reminder invokes it (the front teaches a
-        wait-window phrase) instead of speaking the canned reminder."""
         super().__init__(**kwargs)
         self._phrase = phrase
         self._interval_secs = interval_secs
         self._max_reminders = max_reminders
-        self._lesson = lesson
         self._task: asyncio.Task | None = None
         self._busy = False
 
@@ -94,17 +86,8 @@ class SilenceWatchdog(FrameProcessor):
         self._task = None
 
     async def _remind(self) -> None:
-        # Lesson rides an early slot; canned reminders keep the interval grid
-        # (lesson at 12s, reminders at 60s, 120s, ... from arming).
-        elapsed = 0.0
-        if self._lesson is not None and self._busy:
-            await asyncio.sleep(LESSON_FIRST_INTERVAL_SECS)
-            elapsed = LESSON_FIRST_INTERVAL_SECS
-            if self._busy:
-                await self._lesson()
         for _ in range(self._max_reminders):
-            await asyncio.sleep(max(self._interval_secs - elapsed, 0.0))
-            elapsed = 0.0
+            await asyncio.sleep(self._interval_secs)
             # Spoken only — reminder lines in the LLM context teach a small
             # front model to answer with waiting lines (and then invent a
             # result) instead of delegating; measured on the 2026-10-19 logs.

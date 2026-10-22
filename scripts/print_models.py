@@ -408,7 +408,7 @@ def model_entries(mode: str = "offline") -> list[dict]:
         _llm_entry(),
     ]
     # Split runs the records analyst as its own (always local) model.
-    if config.architecture() == "split":
+    if config.architecture() == "llmwithbackend":
         entries.append(
             _entry(
                 "ANALYST",

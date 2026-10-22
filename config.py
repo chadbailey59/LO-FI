@@ -493,29 +493,29 @@ def rag_fast_llm_model() -> str:
     return _get("LOFI_RAG_FAST_LLM_MODEL", "").strip() or rag_llm_model()
 
 
-def wait_lesson_language() -> str:
-    """Language for the wait-window mini-lesson (LOFI_WAIT_LESSON_LANGUAGE,
-    default empty = off; split only).
+def practice_language() -> str:
+    """Language for online two-way practice (LOFI_PRACTICE_LANGUAGE, default
+    empty = off).
 
-    Set to a language name — e.g. Spanish, German — and while the analyst
-    works the front teaches one short phrase related to the user's question.
+    Set to a language name — e.g. Spanish — and an online session answers in
+    that language whenever the user speaks it.
     """
-    return _get("LOFI_WAIT_LESSON_LANGUAGE", "").strip()
+    return _get("LOFI_PRACTICE_LANGUAGE", "").strip()
 
 
 def architecture() -> str:
-    """Bot architecture (LOFI_ARCHITECTURE, default ``split``).
+    """Bot architecture (LOFI_ARCHITECTURE, default ``llmwithbackend``).
 
-    ``split`` (default): a conversational front model delegates records work
+    ``llmwithbackend`` (default): a conversational front model delegates records work
     to a reasoning analyst backend (pipecat LLMWithBackend/BackendLLMWorker)
     that runs the four retrieval tools.
     ``cascade``: one model holds the four retrieval tools directly — the
     simple, stable fallback.
     """
     value = _get("LOFI_ARCHITECTURE", DEFAULT_ARCHITECTURE).strip().lower()
-    if value not in ("cascade", "split"):
+    if value not in ("cascade", "llmwithbackend"):
         raise SystemExit(
-            f"\n✖ Unknown LOFI_ARCHITECTURE '{value}' — valid: split (default), cascade\n"
+            f"\n✖ Unknown LOFI_ARCHITECTURE '{value}' — valid: llmwithbackend (default), cascade\n"
         )
     return value
 

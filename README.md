@@ -2,100 +2,65 @@
 
 > WIP but isn't everything?
 
-A voice bot that runs Key-Free & **100% offline**. Speech-to-text, the language model, 
-and text-to-speech are all local services, and the "transport†" is your machine's own
-audio hardware — the microphone and speakers.
+A voice bot that runs Key-Free & **100% offline**. Speech-to-text, the language
+model, and text-to-speech are all local services; your documents never leave
+your machine. Built on [Pipecat](https://github.com/pipecat-ai/pipecat)
+**≥ 1.13** (the default architecture rides `LLMWithBackend`/`BackendLLMWorker`),
+and meant to double as a clear, reproducible **example** of how to wire up a
+fully-local Pipecat bot.
 
-Built on [Pipecat](https://github.com/pipecat-ai/pipecat) **≥ 1.13**: the
-split architecture rides `LLMWithBackend`/`BackendLLMWorker`, which first
-shipped in that release.
-This repo is meant to double as a clear, reproducible **example** of how to
-wire up a fully-local Pipecat bot.
-
-The v1 personality is a **private financial thinking partner**: something you can
-talk through money decisions with, out loud, knowing nothing you say leaves the
-computer.
+The v1 personality is a **private financial thinking partner**: something you
+can talk through money decisions with, out loud, knowing nothing you say
+leaves the computer.
 
 Every session picks a side before you Connect: **🔌 offline** (the default —
-the local split stack over all your data) or **☁️ online** (a Deepgram /
+the local stack over all your data) or **☁️ online** (a Deepgram /
 OpenAI / Cartesia cascade over the public documents only). See
 [Online sessions](#online-sessions-the-other-half-of-the-toggle).
 
-†Audio is hard and there are a few ways to handle it in this scenario. See "how do you
-solve a problem like echo cancellation?"
+The happy path is **offline, in a browser**: the browser's `getUserMedia`
+gives echo cancellation for free, and the page talks to the bot over
+loopback — no internet involved. Everything below assumes it. Headphones/CLI,
+Windows, and small machines each have [their own section](#running-on-windows).
 
 ---
 
 ## Requirements
 
-- **Apple Silicon Mac recommended** — Whisper-MLX (the default STT) uses Apple's
-  MLX framework and only runs there. Intel Macs and Linux work too: they default
-  to CPU STT (`faster_whisper`) automatically. Windows works **natively
-  (PowerShell) or via WSL2** — see
-  [Running on Windows](#running-on-windows).
-- ~15 GB free disk for the models
-- Python **3.12** is pinned as 3.14 is too new for the ML wheels.
-- **A plain `uv sync` needs no compiler** — everything in the base install comes
-  from a prebuilt wheel. Several deps (onnxruntime, numba/llvmlite, cryptography)
-  have already dropped Intel-mac wheels, so `pyproject.toml` pins those back to
-  their last Intel-mac release under `[tool.uv]`. If `uv sync` ever starts
-  building something from source, run `python3 scripts/check_wheels.py` to see
-  which platform lost a wheel.
-  The one exception is PyAudio, which has no macOS/Linux wheels — so it is an
-  opt-in extra (`--extra local-audio`) needed only by the headphones front-end.
-- **Pipecat is pinned `>=1.13,<1.14`** — the first release carrying the split
-  architecture's building blocks (`LLMWithBackend`, `BackendLLMWorker`). Note:
-  pipecat ≥ 1.8 drops Intel-mac wheels entirely (its core dep `loudness`
-  ships none) — **Intel macs use the frozen [`intel-mac` branch](../../tree/intel-mac)**
-  (pipecat 1.7, cascade + all three transports).
+- **An Apple Silicon Mac** — Whisper-MLX (the default STT) uses Apple's MLX
+  framework. Linux and Windows run CPU STT instead; Intel Macs use a dedicated
+  branch — see [Other platforms](#running-on-windows).
+- **~15 GB free disk** for the models; **16 GB+ RAM** for the default model
+  pair (smaller tiers exist — see
+  [Choosing models](#choosing-models-for-your-hardware)).
+- **Python 3.12** (pinned; 3.14 is too new for the ML wheels). A plain
+  `uv sync` needs no compiler — everything installs from prebuilt wheels.
 - **[uv](https://docs.astral.sh/uv/)** — Python package manager.
 - **[Ollama](https://ollama.com/)** — serves the local LLM.
-- **PortAudio** OR **any web browser** — PyAudio's native dependency / audio
-  handling. Browser front-ends need neither PortAudio nor a compiler.
+- **Any web browser** — audio I/O and echo cancellation.
 
 ---
 
-## Quickstart Setup
-
-### 0. The [short short version](https://www.youtube.com/watch?v=5X4HYA-lB-U):
+## Quickstart
 
 > [!NOTE]
-> The first pull will take a few minutes to download the models.
+> The first pull takes a few minutes to download the models.
 
-#### Browser-based (for echo cancellation):
 ```bash
 git clone git@github.com:vipyne/LO-FI.git && cd LO-FI
 uv sync
 bash scripts/run_ollama.sh
 uv run python scripts/prefetch_models.py
 ```
+
 Ctrl+C; then turn off wi-fi if you want to show off and then:
 
 ```bash
 ./lofi.sh start
 ```
-Open http://localhost:7860 in any browser, click Connect & have a conversation.
 
-Or...
-
-#### PyAudio & headphones (for echo cancellation):
-
-> [!IMPORTANT]
-> Use headphones 🎧
-
-```bash
-git clone git@github.com:vipyne/LO-FI.git && cd LO-FI
-brew install portaudio            # Debian: sudo apt install portaudio19-dev
-uv sync --extra local-audio       # the extra adds PyAudio (needs PortAudio)
-bash scripts/run_ollama.sh
-uv run python scripts/prefetch_models.py
-```
-Ctrl+C; then turn off wi-fi if you want to show off and then:
-
-```bash
-./lofi.sh start -t headphones
-```
-Have a conversation.
+Open http://localhost:7860 in any browser, click Connect & have a
+conversation.
 
 ## Setup
 
@@ -106,12 +71,12 @@ git clone git@github.com:vipyne/LO-FI.git && cd LO-FI
 uv sync                       # creates .venv and installs everything (Python 3.12)
 ```
 
-Starting from a bare Linux box or a fresh Windows WSL2 (Ubuntu) shell — no git,
-no uv, no Ollama yet? This is the whole setup:
+Starting from a bare Linux box or a fresh Windows WSL2 (Ubuntu) shell — no
+git, no uv, no Ollama yet? This is the whole setup:
 
 ```bash
 # deps
-sudo apt-get update && sudo apt-get install -y git curl 
+sudo apt-get update && sudo apt-get install -y git curl
 curl -LsSf https://astral.sh/uv/install.sh | sh
 source ~/.local/bin/env        # or restart the shell so `uv` is on PATH
 curl -fsSL https://ollama.com/install.sh | sh
@@ -123,27 +88,8 @@ uv sync
 
 (On WSL2, clone into the Linux filesystem — `~/`, not `/mnt/c/…`.)
 
-> [!NOTE]
-> **On Windows?** The whole walkthrough — WSL2 install link, RAM-sized model
-> picks, why WebSocket is the only transport that crosses the WSL2 boundary —
-> lives in [Running on Windows](#running-on-windows).
-
-That is all you need for the browser front-ends. For the headphones front-end
-(`bot.py`), PyAudio has to compile against PortAudio, so install it and opt into
-the extra:
-
-```bash
-brew install portaudio                # Debian: sudo apt install portaudio19-dev
-uv sync --extra local-audio
-```
-
-> [!NOTE]
-> `uv sync` uninstalls any extra you don't pass, so keep listing the ones you
-> want: `uv sync --extra local-audio --extra piper`. (`./configure.sh -i` preserves
-> whatever is already installed.)
-
-Optionally copy the settings template (everything is optional — the bot runs with an
-empty or absent `.lofirc`):
+Optionally copy the settings template (everything is optional — the bot runs
+with an empty or absent `.lofirc`):
 
 ```bash
 cp lofirc.example .lofirc
@@ -161,12 +107,12 @@ Every engine follows it, so you can move the whole lot anywhere:
 
 ```bash
 mv ./models /Volumes/T7/lofi-models
-echo 'LOFI_MODEL_DIR=/Volumes/T7/lofi-models' >> .env
+echo 'LOFI_MODEL_DIR=/Volumes/T7/lofi-models' >> .lofirc
 ```
 
-Absolute paths and `~` both work; relative paths resolve against the repo root,
-not your shell's cwd. `config.py` and `scripts/model_dir.sh` implement the same
-rules, so Python and the shell scripts always agree.
+Absolute paths and `~` both work; relative paths resolve against the repo
+root, not your shell's cwd. `config.py` and `scripts/model_dir.sh` implement
+the same rules, so Python and the shell scripts always agree.
 
 **One command fetches everything:**
 
@@ -176,245 +122,182 @@ uv run python scripts/prefetch_models.py
 
 Pulls the Ollama models (`LOFI_LLM_MODEL` ~4.7 GB, `LOFI_RAG_LLM_MODEL`
 ~5.2 GB, plus `LOFI_EMBED_MODEL` ~0.3 GB) into `$LOFI_MODEL_DIR/ollama` —
-starting a temporary `ollama serve`
-if none is running — downloads the configured STT engine's weights
-(Whisper-MLX `large-v3-turbo`, ~1.5 GB, into `$LOFI_MODEL_DIR/huggingface`;
-faster-whisper/Moonshine on non-Apple-Silicon) and Kokoro's ONNX model +
-voices (~350 MB) into `$LOFI_MODEL_DIR/kokoro`, downloads Daily's two browser
-bundles (the call machine and its audio processor, ~7.4 MB) into
-`$LOFI_MODEL_DIR/daily`, and load-checks the bundled Silero VAD (no download).
-Run this **once, while online**; after it finishes the bot can run with Wi-Fi
-off.
+starting a temporary `ollama serve` if none is running — downloads the
+configured STT engine's weights (Whisper-MLX `large-v3-turbo`, ~1.5 GB, into
+`$LOFI_MODEL_DIR/huggingface`), Kokoro's ONNX model + voices (~350 MB) into
+`$LOFI_MODEL_DIR/kokoro`, and Daily's two browser bundles (~7.4 MB) into
+`$LOFI_MODEL_DIR/daily`, then load-checks the bundled Silero VAD (no
+download). Run this **once, while online**; after it finishes the bot runs
+with wi-fi off.
 
 Approximate total download: **~12 GB** (4.7 GB front LLM + 5.2 GB analyst +
 0.3 GB embeddings + 1.5 GB Whisper + 0.35 GB Kokoro + 7 MB Daily bundles).
 
 The Daily bundles are the browser client's device plumbing, not a model. Both
 browser transports stand up a daily-js call object for mic/device handling (no
-Daily call involved), and daily-js lazy-loads its call machine from
-`c.daily.co` at device init — airgapped that fetch times out and the page
-sticks at "initializing". `bot_browser.py` serves the prefetched copies at
-`/daily/<name>` and the client points daily-js there; without the prefetch the
-route redirects to the CDN, so an online session works either way.
-
-To serve the LLM for the bot (and re-pull `LOFI_LLM_MODEL` if needed):
-
-```bash
-bash scripts/run_ollama.sh
-```
-
-This relocates Ollama's model store to `./models/ollama`, starts `ollama serve`,
-and keeps the server running in the foreground for the bot. Leave it running
-(or re-run it) whenever you use the bot — it's the local LLM server.
+Daily call involved), and daily-js loads its call machine over the network at
+device init. `bot_browser.py` serves the prefetched copies at `/daily/<name>`
+and the client points daily-js there; without the prefetch the route redirects
+to the CDN, so an online session works either way.
 
 ### 3. Run
 
 > [!IMPORTANT]
-> Use headphones 🎧
-
-With the Ollama server (`bash scripts/run_ollama.sh`) running:
-
-```bash
-uv run bot.py
-```
-
-The bot speaks a short greeting, then listens. Talk to it; it replies through your
-speakers. Talk over it and it yields (barge-in). Press **Ctrl-C** to stop.
-
-**One-command launch:** `./lofi.sh start` brings up the repo-local Ollama server
-(if it isn't already running), prints the exact models in play, and serves the
-MoQ browser bot — so you can skip the manual `run_ollama.sh` step
-(`./lofi.sh stop` shuts down what it started). For the headphones front-end run
-`uv run bot.py` directly — see
-[echo cancellation](#how-do-you-solve-a-problem-like-echo-cancellation). Not sure
-what your machine can handle? `./configure.sh` prints recommended STT/LLM/TTS cascades
-sized to your hardware (add `-v` for the full hardware profile and per-slot model
-catalogs ranked by fit, or `-i` to interactively pick a combo the script
-sanity-checks against your hardware).
-
-### 4. Run offline
-
-Once the models are fetched:
-
-1. Make sure the local Ollama server is running (`bash scripts/run_ollama.sh`).
-2. **Turn off Wi-Fi / enable Airplane Mode.** (It won't use the internet if you don't turn off the internet. This is just showing off.)
-3. `uv run bot.py` and hold a conversation.
-
-With `LOFI_LOG_LEVEL=DEBUG` (the default) you can watch the logs and confirm no service
-reaches out to the network after the warm-up.
-
----
-
-## Running on Windows
-
-Two routes, both verified end-to-end on real hardware (2026-10-14):
-
-- **Native (simplest):** PowerShell + uv, no Linux layer, full machine RAM.
-  MoQ isn't available natively (its `moq-ffi` library ships no Windows
-  wheels) — use the WebSocket transport.
-- **WSL2:** the bot runs in Linux, your browser/mic/speakers stay on Windows.
-  You get the bash tooling (`./lofi.sh`, `./configure.sh`), at the cost of
-  installing WSL and a default RAM cap.
-
-Either way, **expect speech-to-text to be the slow part**: without Apple
-Silicon, Whisper runs on the CPU. Two knobs if it drags:
-`LOFI_FASTER_WHISPER_MODEL` (a smaller model than the `DISTIL_MEDIUM_EN`
-default is faster and less accurate), or the tiny CPU-first engine:
-`uv sync --extra moonshine` + `LOFI_STT_ENGINE=moonshine`.
-
-### Route A: native Windows (PowerShell)
-
-No admin needed. In PowerShell:
-
-```powershell
-# one-time tools
-powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"
-winget install --id Git.Git          # if you don't have git
-winget install --id Ollama.Ollama    # the local LLM server
-
-# code + env (uv fetches its own Python 3.12)
-git clone https://github.com/vipyne/LO-FI.git
-cd LO-FI
-uv sync
-
-# models (one-time, online)
-uv run python scripts/prefetch_models.py
-
-# run — the bash launcher (lofi.sh) doesn't run natively; start the bot directly
-uv run python bot_browser.py --host localhost --port 7860
-```
-
-Then open **`http://localhost:7860`** in any browser,
-Connect, allow the mic, talk — WebSocket is the default transport.
-Env vars in PowerShell are session-scoped assignments, e.g.:
-
-```powershell
-$env:LOFI_LLM_MODEL = "llama3.2:1b"
-$env:LOFI_ARCHITECTURE = "cascade"
-```
-
-Native Windows is the happy path for online sessions' `webrtc` transport:
-loopback UDP works here, unlike WSL2, so WebRTC's Opus-encoded media needs no
-fallback.
-
-### Route B: WSL2
-
-#### 1. Install WSL2 (one-time)
-
-Follow Microsoft's guide: <https://learn.microsoft.com/windows/wsl/install>.
-The short version: open an **admin** terminal (Win+X → "Terminal (Admin)"),
-run `wsl --install`, reboot, and create your Ubuntu username/password when the
-first launch asks. No special networking configuration is needed — the
-WebSocket transport below works in WSL2's default (NAT) networking mode.
-
-#### 2. Set up lofi inside WSL
-
-Open Windows Terminal → the **Ubuntu** profile (the ˅ dropdown next to the
-new-tab button), then run the bare-Linux setup block from
-[Setup step 1](#1-clone-install-system-deps-and-sync-the-environment) — deps
-(git, curl, uv, Ollama), clone, `uv sync`. Two WSL-specific rules:
-
-- **Clone into the Linux filesystem** (`~/`), never `/mnt/c/…` — the Windows
-  mount is slow and flaky for this workload.
-- Everything below runs **inside the Ubuntu tab**; only the browser runs on
-  Windows.
-
-#### 3. Pick models that fit your RAM
-
-WSL shares the machine's RAM, and every resident model has to fit —
-`./configure.sh` profiles the machine and ranks model combos that fit (`-i`
-to pick interactively). The default pair (qwen2.5:7b front + qwen3:8b
-analyst) wants **16 GB+**. On a ~8 GB machine, drop to a
-single small model in `cascade` mode before prefetching:
-
-```bash
-export LOFI_ARCHITECTURE=cascade LOFI_LLM_MODEL=llama3.2:1b LOFI_RAG_LLM_MODEL=llama3.2:1b
-uv run python scripts/prefetch_models.py
-./lofi.sh index-rag          # optional: build the RAG index
-```
-
-That tier is **proof-of-life, not accuracy** — it converses and exercises the
-whole pipeline, but a 1B model fumbles records questions (measured: as a
-front model it invents numbers on ~1 in 3 data questions, which is why the
-small-machine recipe uses `cascade`, not the `split` default). Real
-records-accuracy wants the 16 GB tier — the
-[model table](#three-architectures-one-env-var) shows what each step up buys.
-
-#### 4. Run
+> Speakers are fine in the browser — its echo cancellation handles them.
 
 ```bash
 ./lofi.sh start
 ```
 
-(`lofi.sh` detects WSL and skips its browser auto-open — the right browser is
-on the Windows side.) Then, in **a browser on Windows**, open:
+Brings up the repo-local Ollama server (if it isn't already running), prints
+the exact models in play, and serves the browser bot
+(`./lofi.sh stop` shuts down what it started). Open
+**http://localhost:7860**, click Connect, allow the mic, talk. The bot
+greets you, listens, and yields when you talk over it (barge-in).
 
+Not sure what your machine can handle? `./configure.sh` prints recommended
+STT/LLM/TTS combos sized to your hardware — see
+[Choosing models](#choosing-models-for-your-hardware).
+
+### 4. Run offline
+
+Once the models are fetched:
+
+1. Make sure the local Ollama server is running (`./lofi.sh start` handles
+   this).
+2. **Turn off Wi-Fi / enable Airplane Mode.** (It won't use the internet if
+   you don't turn off the internet. This is just showing off.)
+3. Connect and hold a conversation.
+
+With `LOFI_LOG_LEVEL=DEBUG` (the default) you can watch the logs and confirm
+no service reaches out to the network after the warm-up.
+
+---
+
+## Retrieval (your transactions and documents)
+
+The bot answers real questions about your own money — fully offline, no
+vector database server. `data/` holds the documents, and the split is the
+privacy boundary:
+
+- **`data/private/`** — your transactions and notes (`.csv`, `.txt`, `.md`,
+  `.pdf`). Offline sessions only.
+- **`data/public/`** — documents you don't mind sending to a cloud service.
+  The repo ships IRS Pub 17 and Pub 334 here.
+
+```bash
+./lofi.sh index-rag
 ```
-http://localhost:7860
+
+builds `models/rag-index/lofi.db` from **all** of `data/` — the offline
+session's index — and, with `OPENAI_API_KEY` set, a second database
+`lofi-public.db` from `data/public/` alone, the only one an online session
+can open. Put a file in the wrong directory and you've moved the boundary —
+that is the whole mechanism. After adding or editing documents, re-run
+`./lofi.sh index-rag`; with no index the bot starts without the tool and
+simply converses.
+
+### The tools
+
+Chunk-and-embed similarity search alone cannot answer "how much did I spend
+on groceries?" — the grocery rows scatter across chunks and nothing adds them
+up. Structured data wants typed queries, so retrieval is four tools over
+SQLite, and all arithmetic happens in SQL. The model never writes SQL itself —
+each tool takes whitelisted arguments and builds a parameterized query, capped
+at five rows or chunks per result:
+
+| Tool | For |
+|---|---|
+| `lookup` | "what did I pay Harborview?" — transaction id, or bm25 full-text over rows |
+| `filter_rows` | "my five biggest expenses in March 2025" — column/operator/value filters, ordered |
+| `aggregate` | "how much did I spend on groceries in 2025" — count/sum/avg/min/max, transfers excluded unless asked |
+| `semantic_search` | "what's in my tax notes?" — embedding KNN fused with full-text, over everything |
+
+### The indexes
+
+Each database holds typed transaction rows, an FTS5 full-text index, and a
+`sqlite-vec` vector table side by side. The two builds are independent: a
+failing public build exits nonzero and leaves `lofi.db` untouched. Ingest is
+incremental — each file is hashed, unchanged files are skipped, edited files
+are re-embedded alone, deleted files are purged. Change the embedding model
+and it rebuilds from scratch and says why.
+
+CSV files are indexed row by row, and each row is also written out as a prose
+sentence — `On February 5, 2025, spent $412.00 at Harborview Credit Union
+(Auto Payment) from account VIP Plus Banking (...4821).` — so full-text and
+embedding search hit the same rows the typed columns do. Monthly per-category
+rollups are generated alongside, so "what did March look like" has something
+to retrieve. Bank statement exports work as-is.
+
+`./lofi.sh status` shows both indexes and every model tag with its real path.
+
+### Is it really reading my documents? The canary trick
+
+Plant a fact the model cannot possibly know, and ask for it:
+
+```bash
+echo "The secret passphrase for the tax vault is BLUE PELICAN 47." > data/private/canary.txt
+./lofi.sh index-rag
+./lofi.sh start
 ```
 
-Open the page with **`?transport=websocket`** — WebSocket is the only
-transport that works here: MoQ's QUIC and WebRTC's media are both UDP, which
-never crosses the Windows↔WSL boundary (verified in NAT and mirrored modes,
-Hyper-V firewall open, raw-UDP probe). The WebSocket transport is pure TCP and
-crosses the boundary the same way the web page itself does. Offline sessions
-already default to websocket; an **online** session defaults to `webrtc` and
-falls back to websocket on its own, but that costs ~15–30 s of failing first —
-so pin the param and the mode toggle leaves the transport alone:
+Ask *"what's the passphrase for the tax vault?"* — a correct answer can only
+have come from retrieval, and the retrieved-context panel prints one line per
+tool call (which tool, its arguments, how many rows came back, how long it
+took) plus the composed answer. The same canary also demonstrates the index
+lifecycle: delete `data/private/canary.txt` and ask again without re-indexing —
+the bot still answers, because it reads the built index, never `data/`
+itself. Re-run `./lofi.sh index-rag` and ask a third time — now the
+passphrase is gone. Moral: the index only changes when you rebuild it.
 
-```
-http://localhost:7860/?transport=websocket
-```
+For a negative control, `mv models/rag-index /tmp/` and restart: the bot
+starts with no tool and answers ungrounded. To inspect the index directly,
+`uv run python ingest.py stats`, or open `models/rag-index/lofi.db` with any
+`sqlite3` client.
 
-Then click **Connect**, allow the mic, talk. Don't force `?transport=moq`
-here either.
+### Reference documents
 
-### Windows troubleshooting
+`data/public/` ships two IRS publications so `semantic_search` has real tax
+prose to retrieve next to your transactions:
 
-- **WSL only sees about half your RAM** — that's its default cap, and it's
-  what `./configure.sh` and Ollama see. A 16 GB machine shows ~8 GB inside
-  Ubuntu. Raise it: edit `%UserProfile%\.wslconfig` on the Windows side
-  (`vi /mnt/c/Users/<you>/.wslconfig` from bash works) to
+- [Publication 17](https://www.irs.gov/pub/irs-pdf/p17.pdf) — Your Federal Income Tax (individuals)
+- [Publication 334](https://www.irs.gov/pub/irs-pdf/p334.pdf) — Tax Guide for Small Business
 
-  ```ini
-  [wsl2]
-  memory=12GB
-  ```
+Canonical sources for more:
 
-  then `wsl --shutdown` in PowerShell and relaunch. With 12 GB the real
-  16 GB-tier model pair usually fits.
-- **Forgot your Ubuntu sudo password**: in PowerShell, `wsl -d Ubuntu -u root`,
-  then `passwd <your-username>`, `exit`. (A once-a-day MOTD error in the root
-  shell is harmless noise.)
-- **First reply after startup is slow**: that's the model loading into RAM;
-  `OLLAMA_KEEP_ALIVE=30m` keeps it resident afterwards.
-- **A `(could not resolve models — run 'uv sync' and retry)` line at start**:
-  cosmetic; the bot still starts.
-- **Editing Windows-side files from bash**: they're under `/mnt/c/Users/<you>/…`
-  (e.g. `vi /mnt/c/Users/<you>/.wslconfig`) — handy, but keep the repo itself
-  in `~/`.
+- IRS forms, instructions, and publications: <https://www.irs.gov/forms-instructions>
+- The Internal Revenue Code itself (26 U.S.C.): <https://uscode.house.gov/download/download.shtml>
+- Treasury regulations (26 CFR): <https://www.ecfr.gov/current/title-26>
+
+Plain-prose publications chunk well. Raw statute and regulation text does
+not — deeply nested numbering scatters each rule across chunks — so `data/`
+carries pubs only. Drop in whatever reference documents fit your life
+(leases, manuals, insurance policies) and re-run `./lofi.sh index-rag`.
+
+---
+
+## What's inside
+
+| Component | Service | Notes |
+|---|---|---|
+| Speech-to-text | `WhisperSTTServiceMLX` *(default)* | Apple-Silicon-optimized Whisper via MLX. Alternatives via `LOFI_STT_ENGINE`: `faster_whisper` (CPU), `moonshine` (tiny CPU ONNX) |
+| Language model | `qwen2.5:7b` front + `qwen3:8b` records analyst *(defaults)* via **Ollama** | Local, OpenAI-compatible endpoint; env-configurable. The llmwithbackend analyst (`LOFI_RAG_LLM_MODEL`) answers from your records. |
+| Text-to-speech | `KokoroTTSService` *(default)* | Natural local neural voice (kokoro-onnx). Alternative via `LOFI_TTS_ENGINE`: `piper` |
+| Turn-taking | Silero VAD | Barge-in / interruptions, fully local (bundled with Pipecat) |
+| Transport | `FastAPIWebsocketTransport` offline / `SmallWebRTCTransport` online *(per session mode)* | free echo cancellation via `getUserMedia`; websocket is pure TCP so offline works airgapped, webrtc auto-falls back to it. `?transport=moq` opts into media-over-QUIC |
+| Alternative transport | `LocalAudioTransport` | PyAudio mic + speaker I/O (requires headphones) — see [echo cancellation](#how-do-you-solve-a-problem-like-echo-cancellation) |
+| Online session *(opt-in)* | `DeepgramSTTService` + `OpenAILLMService` + `CartesiaTTSService` | Picked per session in the browser; retrieves from the public index only — see [Online sessions](#online-sessions-the-other-half-of-the-toggle) |
 
 ---
 
 ## How do you solve a problem like echo cancellation
 
-### Use headphones
+### Use the web browser's `getUserMedia` (the default)
 
-Because reasons, it's much closer to impossible than just impractical to get native 
-macOS AEC (Acoustic Echo Cancellation) to work with pyaudio. Use headphones and 
-the bot won't keep interrupting itself.
-
-### Use the web browser's `getUserMedia`
-
-Another fantastic workaround is to use a browser. Not the internet, just the web 
-browser. Do this and 🎉, you have echo cancellation.
-
-`./lofi.sh start` brings up Ollama and serves a local page (still
-fully offline — the browser talks to the bot over loopback, no internet):
-
-```bash
-./lofi.sh start    # open http://localhost:7860 in any browser
-```
+The browser's audio stack ships acoustic echo cancellation, so the page at
+http://localhost:7860 can use your speakers without the bot interrupting
+itself. Not the internet — just the web browser, talking to the bot over
+loopback.
 
 **The browser transport follows the session mode.** An offline session is
 allowed to have no network at all, and WebRTC can't connect airgapped — with
@@ -427,19 +310,37 @@ unreachable). So:
 | `☁️ online` | **webrtc** | a network exists by definition; UDP media over loopback is the lowest-latency path |
 
 Flipping the mode toggle reloads the page onto that mode's transport (the
-toggle is pre-connect only). A failed webrtc connect still falls back
-automatically, once, to **websocket**. `?transport=` pins one transport for
-the whole session and outranks the mode:
+toggle is pre-connect only). A failed webrtc connect falls back automatically,
+once, to websocket. `?transport=` pins one transport for the whole session and
+outranks the mode:
 
-- **WebSocket** (`?transport=websocket`, *offline default*): pure TCP, works in
-  every browser and across every boundary (including Windows↔WSL2, where UDP
-  never crosses). Pin this one on WSL2 so online sessions skip the webrtc
+- **WebSocket** (`?transport=websocket`, *offline default*): pure TCP, works
+  in every browser and across every boundary (including Windows↔WSL2, where
+  UDP never crosses). Pin this one on WSL2 so online sessions skip the webrtc
   attempt.
 - **SmallWebRTC** (`?transport=webrtc`, *online default*): UDP media over
   loopback, in the base install (aiortc ships a pure-Python wheel). Needs UDP
   to reach the bot — so not across Windows↔WSL2, and not with wi-fi off.
 - **MoQ over QUIC** (`?transport=moq`): media-over-QUIC via WebTransport,
   which Safari and Firefox don't ship yet (Chrome/Edge only).
+
+### Use headphones (the CLI front-end)
+
+Native macOS AEC with PyAudio is much closer to impossible than impractical,
+so the no-browser front-end (`bot.py`, mic + speakers via PyAudio) needs
+headphones to keep the bot from interrupting itself. PyAudio has no
+macOS/Linux wheels, so it is an opt-in extra:
+
+```bash
+brew install portaudio            # Debian: sudo apt install portaudio19-dev
+uv sync --extra local-audio       # the extra adds PyAudio (needs PortAudio)
+./lofi.sh start -t headphones
+```
+
+> [!NOTE]
+> `uv sync` uninstalls any extra you don't pass, so keep listing the ones you
+> want: `uv sync --extra local-audio --extra piper`. (`./configure.sh -i`
+> preserves whatever is already installed.)
 
 ---
 
@@ -451,14 +352,13 @@ this project, and nowhere to put one:
 - **Ollama** pulls the LLM from its own public registry and serves it locally.
 - **Whisper-MLX and Kokoro** download anonymously from Hugging Face (none are
   gated); **Silero VAD** ships bundled with Pipecat.
-
 - **Daily's browser bundles** (the client's mic/device plumbing) are vendored
   by the same prefetch and served same-origin.
 
 `.lofirc` is **config only** — model names, a voice, device indices, cache
 paths. It is gitignored, but nothing secret ever belongs in it. The single
 network event in an offline session's entire lifecycle is the one-time,
-anonymous model download in step 2.
+anonymous model download in Setup step 2.
 
 After the prefetch, an airgapped websocket or WebRTC session makes **zero**
 external requests. Two dead branches survive in the built client and neither
@@ -495,14 +395,11 @@ choice round-trips through the URL (`?mode=online`), so a reload keeps it.
 | Tools | `lookup`, `filter_rows`, `aggregate`, `semantic_search` | `semantic_search` only |
 | Keys needed | none | all three in `.env` |
 
-**The privacy boundary is the filesystem, not a prompt.** `data/` is split in
-two — `data/private/` (your transactions, your notes) and `data/public/` (the
-IRS publications shipped with the repo) — and `./lofi.sh index-rag` builds one
-database from each. Online code never constructs the private path: it is
-wired to `config.public_rag_db_path()` and nothing else, so a private answer
-isn't refused by instruction, it is unreachable. Ask an online session for
-your passphrase and it says the records aren't part of this session and an
-offline one can answer.
+**The privacy boundary is the filesystem, not a prompt.** Online code never
+constructs the private path: it is wired to `config.public_rag_db_path()` and
+nothing else, so a private answer isn't refused by instruction, it is
+unreachable. Ask an online session for your passphrase and it says the
+records aren't part of this session and an offline one can answer.
 
 What *does* leave the machine in an online session: everything you say, and
 every chunk of public document the retrieval pulls in. The page says so, in a
@@ -544,14 +441,13 @@ local-audio bot has no online stack.
 ### Two-way language practice
 
 ```bash
-LOFI_WAIT_LESSON_LANGUAGE=Spanish ./lofi.sh start
+LOFI_PRACTICE_LANGUAGE=Spanish ./lofi.sh start
 ```
 
-Offline, that knob teaches one phrase while the analyst thinks (teach-only —
-local STT is English-configured and spoken Spanish comes back as gibberish).
-**Online it becomes two-way**: Deepgram's `nova-3` with `language=multi`
-code-switches and Cartesia's voice speaks the language, so the same session
-answers you in Spanish when you speak Spanish.
+Online only: Deepgram's `nova-3` with `language=multi` code-switches and
+Cartesia's voice speaks the language, so the session answers you in Spanish
+when you speak Spanish. Offline sessions ignore the knob — local STT is
+English-configured.
 
 ### What it costs
 
@@ -562,45 +458,11 @@ never sent to the browser, and never appear in the What's Running panel.
 
 ---
 
-## What's inside
-
-| Component | Service | Notes |
-|---|---|---|
-| Speech-to-text | `WhisperSTTServiceMLX` *(default)* | Apple-Silicon-optimized Whisper via MLX. Alternatives via `LOFI_STT_ENGINE`: `faster_whisper` (CPU), `moonshine` (tiny CPU ONNX) |
-| Language model | `qwen2.5:7b` front + `qwen3:8b` records analyst *(defaults)* via **Ollama** | Local, OpenAI-compatible endpoint; env-configurable. The split architecture's analyst backend (`LOFI_RAG_LLM_MODEL`) answers from your records. |
-| Text-to-speech | `KokoroTTSService` *(default)* | Natural local neural voice (kokoro-onnx). Alternative via `LOFI_TTS_ENGINE`: `piper` |
-| Turn-taking | Silero VAD | Barge-in / interruptions, fully local (bundled with Pipecat) |
-| Transport | `FastAPIWebsocketTransport` offline / `SmallWebRTCTransport` online *(per session mode)* | free echo cancellation via `getUserMedia`; websocket is pure TCP so offline works airgapped, webrtc auto-falls back to it. `?transport=moq` opts into media-over-QUIC |
-| Alternative transport | `LocalAudioTransport` | PyAudio mic + speaker I/O (requires headphones) |
-| Online session *(opt-in)* | `DeepgramSTTService` + `OpenAILLMService` + `CartesiaTTSService` | Picked per session in the browser; retrieves from the public index only — see [Online sessions](#online-sessions-the-other-half-of-the-toggle) |
-
----
-
-## Retrieval (your transactions and documents)
-
-The bot answers real questions about your own money — fully offline, no vector
-database server. Drop `.txt`, `.md`, `.pdf`, or `.csv` files into `./data/`,
-then:
-
-```bash
-ollama pull nomic-embed-text   # one-time, while online
-./lofi.sh index-rag
-```
-
-`data/` has two subdirectories and the split is the privacy boundary:
-`data/private/` (your transactions and notes) and `data/public/` (documents
-you don't mind sending to a cloud service — the repo ships IRS Pub 17 and
-Pub 334 there). An offline session indexes **all** of `data/` into
-`lofi.db`; `index-rag` then builds a second database, `lofi-public.db`, from
-`data/public/` alone, and that is the only one an online session can open.
-Put a file in the wrong directory and you've moved the boundary — that is the
-whole mechanism.
-
-### Two architectures, one env var
+## Two architectures, one env var
 
 `LOFI_ARCHITECTURE` picks how retrieval and conversation share the work:
 
-- **`split`** (the default) — a conversational front model (reasoning off)
+- **`llmwithbackend`** (the default) — a conversational front model (reasoning off)
   delegates records work to a reasoning analyst backend via Pipecat's
   `LLMWithBackend`/`BackendLLMWorker`. The front holds one domain-named
   builtin (`ask_financial_records`); the backend (`LOFI_RAG_LLM_MODEL`,
@@ -608,162 +470,107 @@ whole mechanism.
   your records. The backend's thinking stays in the native API's `reasoning`
   field and never reaches TTS; its answers are written back into the
   conversation, so follow-ups work.
-- **`cascade`** — one model does the talking and the retrieving. It
-  holds four typed tools over the index; any question about transactions,
-  spending, merchants, accounts, totals, or saved documents turns into tool
-  calls, and the model answers only from what they return — with a short
-  "Let me check your records." covering the lookup. The simplest architecture
-  to read and the stable fallback.
-
-(Two earlier architectures live in git history: `observer`, an analyst
-listening to every turn in parallel, and split-v1, a generic delegate tool
-whose routing recall capped at 0.51 on small models.)
-
-Pick models for your hardware — same code, env vars
-(`LOFI_ARCHITECTURE=split LOFI_RAG_LLM_MODEL=<tag> ./lofi.sh start`).
-Measured on an internal eval (28 gold queries incl. multi-turn, M4 Pro;
-observer rows are historical — the split-v2 eval stage is pending):
-
-| Config | RAM | Answer accuracy | Full lookup, mean |
-|---|---|---|---|
-| observer (retired): `qwen2.5:7b` front + `qwen3:8b` analyst | ≥ 16 GB | **0.93** | ~20 s accurate mode* |
-| observer (retired): `qwen2.5:7b` front + `nemotron-3-nano:4b` analyst | ≥ 16 GB (8 GB with smaller STT) | 0.79 | ~14 s accurate mode* |
-| `qwen2.5:14b` cascade | ≥ 24 GB | 0.65 | ~8.2 s |
-| `qwen2.5:7b` cascade | ≥ 16 GB | 0.43 | ~4.0 s |
-
-*Latencies measured on a loaded machine — treat as a ranking, not a benchmark.
-
-#### Will it fit? The RAM budget
-
-Ollama's default Q4 quantization costs roughly **params / 2 GB of weights**,
-plus **1–3 GB of KV cache and runtime overhead** that grows with context
-length. Measured resident sizes on an M4 Pro:
-
-| Model | Weights (Q4) | Measured resident |
-|---|---|---|
-| 7B (`qwen2.5:7b`) | ~3.5 GB | **~4.5 GB** |
-| 8B (`qwen3:8b`) | ~4.0 GB | ~5 GB |
-| 14B (`qwen2.5:14b`) | ~7 GB | **~9 GB** |
-| 27B (`qwen3.8:27b`) | ~14 GB | **17.7 GB** |
-
-Add **~2 GB for STT + TTS** (Whisper-MLX large-v3-turbo plus Kokoro), and
-remember `split` keeps **two** LLMs resident at once — front *and* analyst. So
-the default split pair is ~4.5 + 5 + 2 ≈ **11.5 GB**.
-
-Rule of thumb: **leave a third of your unified RAM free.** macOS and the
-browser want it, and the moment the GPU spills to swap, latency stops being a
-ranking and becomes a wait. On 16 GB that means budgeting ~11 GB — the
-defaults fit, a 14B analyst does not. On 8 GB, run `cascade` with a small
-model, or skip the weights entirely with
-[`./lofi.sh start --online-only`](#online-only-a-machine-with-no-models).
+- **`cascade`** — one model does the talking and the retrieving. It holds the
+  four typed tools over the index; any question about transactions, spending,
+  merchants, accounts, totals, or saved documents turns into tool calls, and
+  the model answers only from what they return — with a short "Let me check
+  your records." covering the lookup. The simplest architecture to read and
+  the stable fallback for small machines.
 
 Reasoning models (deepseek-r1, qwen3 with thinking) are not supported as the
-**pipeline** model — nothing strips thinking tokens before the voice. The
-split backend is exactly where a reasoning model belongs: its thinking
-stays in the native API's `reasoning` field and never reaches TTS.
+**front/cascade** model — nothing strips thinking tokens before the voice.
+The analyst backend is exactly where a reasoning model belongs: its thinking
+stays in the native API's `reasoning` field and never reaches TTS. The
+backend also needs a model that emits real API tool calls —
+`nemotron-3-nano:4b` narrates them as JSON text and fails as the analyst
+backend.
 
-An earlier version did RAG the way most tutorials do — chunk the CSV, embed the
-chunks, retrieve by cosine similarity. It could not answer "how much did I
-spend on groceries?" because the grocery rows were scattered across chunks and
-nothing could add them up. Structured data wants typed queries, not similarity
-search; that version lives in the git history.
+---
 
-The model never writes SQL itself — each tool takes whitelisted arguments and
-builds a parameterized query, capped at five rows or chunks per result:
+## Choosing models for your hardware
 
-| Tool | For |
-|---|---|
-| `lookup` | "what did I pay Harborview?" — transaction id, or bm25 full-text over rows |
-| `filter_rows` | "my five biggest expenses in March 2025" — one column/operator/value, ordered |
-| `aggregate` | "how much did I spend on groceries in 2025" — count/sum/avg/min/max, transfers excluded unless asked |
-| `semantic_search` | "what's in my tax notes?" — embedding KNN fused with full-text, over everything |
+The question: *what can this computer actually run?* The process:
 
-### One SQLite file (two, once online mode is set up)
+1. **Profile the machine.** `./configure.sh` reads your RAM/CPU/GPU and prints
+   STT/LLM/TTS combos sized to it (`-v` for the full report with per-slot
+   model catalogs ranked by fit, `-i` to pick interactively). Everything
+   resident at once has to fit — front model + analyst + embedder + STT + TTS.
+   `run_ollama.sh` sets `OLLAMA_MAX_LOADED_MODELS=3` and
+   `OLLAMA_KEEP_ALIVE=30m` so the working set stays loaded instead of
+   thrashing.
+   The suggestions are more than RAM math — the catalog is pre-filtered,
+   because "biggest that fits" alone happily recommends the wrong model:
+   - **Specialist weed-out, by name.** Families matching
+     `code`/`math`/`sql`/`rerank`/`embed`/`guard`/`shield` (qwen3-coder,
+     mathstral, sqlcoder, llama-guard…) are tuned for one job and make poor
+     conversational analysts, however well they fit.
+   - **Legacy weed-out, by age.** A family whose last ollama.com update is
+     over a year old only ranks high on *cumulative* downloads; its own
+     successors outclass it at every size.
+   - **Reasoning models** are excluded from cascade picks — nothing strips
+     thinking tokens before the voice (the analyst *backend* is where they
+     belong).
 
-`./lofi.sh index-rag` builds a single database at `LOFI_RAG_DB` (default
-`./models/rag-index/lofi.db`) holding typed transaction rows, an FTS5
-full-text index, and a `sqlite-vec` vector table side by side. With
-`OPENAI_API_KEY` set it then builds the same shape a second time at
-`LOFI_PUBLIC_RAG_DB` (default `./models/rag-index/lofi-public.db`) over
-`data/public/` with OpenAI embeddings — the online session's whole world. The
-two builds are independent: a failing public build exits nonzero and leaves
-`lofi.db` untouched. Ingest is
-incremental: each file is hashed, unchanged files are skipped, edited files are
-re-embedded alone, and deleted files are purged. Change the embedding model and
-it rebuilds from scratch and says why.
+   The filters shape suggestions, not availability: any model you set
+   explicitly is honored, and `./configure.sh --catalogs` (or
+   `./lofi.sh status -v`) lists everything unfiltered.
 
-CSV files are indexed row by row, and each row is also written out as a prose
-sentence — `On February 5, 2025, spent $412.00 at Harborview Credit Union
-(Auto Payment) from account VIP Plus Banking (...4821).` — so full-text and
-embedding search hit
-the same rows the typed columns do. Monthly per-category rollups are generated
-alongside, so "what did March look like" has something to retrieve. Bank
-statement exports work as-is.
+2. **Budget the RAM.** Ollama's default Q4 quantization costs roughly
+   **params / 2 GB of weights**, plus **1–3 GB of KV cache and runtime
+   overhead** that grows with context length. Measured resident sizes on an
+   M4 Pro:
 
-`./lofi.sh status` shows the index and both model tags. After adding or
-editing documents, re-run `./lofi.sh index-rag`. With no index the bot starts
-without the tool and simply converses.
+   | Model | Weights (Q4) | Measured resident |
+   |---|---|---|
+   | 7B (`qwen2.5:7b`) | ~3.5 GB | **~4.5 GB** |
+   | 8B (`qwen3:8b`) | ~4.0 GB | ~5 GB |
+   | 14B (`qwen2.5:14b`) | ~7 GB | **~9 GB** |
+   | 27B (`qwen3.8:27b`) | ~14 GB | **17.7 GB** |
 
-The older numpy index files (`chunks.jsonl`, `embeddings.npy`,
-`manifest.json`) are inert — nothing reads them. They are left on disk rather
-than deleted.
+   Add **~2 GB for STT + TTS** (Whisper-MLX large-v3-turbo plus Kokoro), and
+   remember `llmwithbackend` keeps **two** LLMs resident at once — front *and*
+   analyst. So the default pair is ~4.5 + 5 + 2 ≈ **11.5 GB**.
 
-### Is it really reading my documents? The canary trick
+   Rule of thumb: **leave a third of your unified RAM free.** macOS and the
+   browser want it, and the moment the GPU spills to swap, latency stops
+   being a ranking and becomes a wait. On 16 GB that means budgeting ~11 GB —
+   the defaults fit, a 14B analyst does not. On 8 GB, run `cascade` with a
+   small model, or skip the weights entirely with
+   [`./lofi.sh start --online-only`](#online-only-a-machine-with-no-models).
 
-Plant a fact the model cannot possibly know, and ask for it:
+3. **Measure, don't vibe.** The eval harness is the yardstick:
+   `uv run python evals/run_evals.py --stage split` scores a candidate
+   analyst on gold queries (accuracy, missed questions, latency);
+   `--stage front` checks a candidate front model never invents numbers and
+   defers records questions. `evals/sweep.sh` loops a list of candidates
+   through both and prints a leaderboard — edit the candidate lists and run
+   it against your own hardware.
 
-```bash
-echo "The secret passphrase for the tax vault is BLUE PELICAN 47." > data/private/canary.txt
-./lofi.sh index-rag
-./lofi.sh start -t headphones
-```
+4. **Read the right numbers.** `answer_accuracy` is the headline;
+   `sentinel_on_data` is questions the analyst wrongly ignored;
+   `silent_on_chitchat` catches an analyst that butts into small talk;
+   `total_ms_mean` is what the wait feels like. A model that's 5 points more
+   accurate but twice as slow is usually the wrong trade for live voice.
 
-Ask *"what's the passphrase for the tax vault?"* — a correct answer can only
-have come from retrieval, and in the browser UI the retrieved-context panel
-prints one line per backend tool call (which tool, its arguments, how many rows
-came back, how long it took) plus the composed answer. The same canary also
-demonstrates the index lifecycle: delete `data/private/canary.txt` and ask again
-without re-indexing — the bot still answers, because it reads the built index,
-never `data/` itself. Re-run `./lofi.sh index-rag` and ask a third time — now
-the passphrase is gone. Moral: the index only changes when you rebuild it.
+5. **Mind residency.** Swapping models mid-session costs a multi-second
+   reload. Fast mode stays on the same analyst weights (thinking off) for
+   exactly this reason.
 
-For a negative control, `mv models/rag-index /tmp/` and restart: the bot starts
-with no tool and answers ungrounded. To inspect the index directly,
-`uv run python ingest.py stats`, or open
-`models/rag-index/lofi.db` with any `sqlite3` client.
-
-### Reference documents
-
-`./data/` ships with two IRS publications so `semantic_search` has real tax
-prose to retrieve next to your transactions:
-
-- [Publication 17](https://www.irs.gov/pub/irs-pdf/p17.pdf) — Your Federal Income Tax (individuals)
-- [Publication 334](https://www.irs.gov/pub/irs-pdf/p334.pdf) — Tax Guide for Small Business
-
-Canonical sources for more:
-
-- IRS forms, instructions, and publications: <https://www.irs.gov/forms-instructions>
-- The Internal Revenue Code itself (26 U.S.C.): <https://uscode.house.gov/download/download.shtml>
-- Treasury regulations (26 CFR): <https://www.ecfr.gov/current/title-26>
-
-Plain-prose publications chunk well. Raw statute and regulation text does
-not — deeply nested numbering scatters each rule across chunks — so `./data/`
-carries pubs only. Drop in whatever reference documents fit your life
-(leases, manuals, insurance policies) and re-run `./lofi.sh index-rag`.
+Set the choice with env vars — same code:
+`LOFI_ARCHITECTURE=llmwithbackend LOFI_RAG_LLM_MODEL=<tag> ./lofi.sh start`.
 
 ---
 
 ## One place for all models: consolidate
 
 HuggingFace defaults to `~/.cache/huggingface`, Ollama to `~/.ollama/models` —
-models you pulled before lofi (or outside it) live there, and lofi uses them
-from there automatically: the bot loads weights straight from whichever cache
-has them, and `./lofi.sh status` prints the real path (its `downloaded`
-section inventories every model on disk, with sizes).
-`./lofi.sh consolidate` is an optional convenience on top — it adopts external
-models into `LOFI_MODEL_DIR` with symlinks so one `ls -al ./models` browses
-every model with its real path (and shows what a zip-and-go copy of the repo
-would actually include):
+models you pulled outside lofi live there, and lofi uses them from there
+automatically: the bot loads weights straight from whichever cache has them,
+and `./lofi.sh status` prints the real path (its `downloaded` section
+inventories every model on disk, with sizes). `./lofi.sh consolidate` is an
+optional convenience on top — it adopts external models into `LOFI_MODEL_DIR`
+with symlinks so one `ls -al ./models` browses every model with its real path
+(and shows what a zip-and-go copy of the repo would actually include):
 
 ```bash
 ./lofi.sh consolidate -n   # dry run: print what would be adopted
@@ -781,57 +588,159 @@ would actually include):
 
 Nothing outside the repo is ever moved, modified, or deleted; the only writes
 are symlinks (plus removal of lofi-owned 0-byte `.incomplete` stubs).
-`./lofi.sh status` labels adopted models `(borrowed → /real/path)`. Borrowed means borrowed: a re-download of that
-model follows the symlink into your home cache, and zipping up the repo
-excludes borrowed weights — delete the link and `ollama pull` /
-`uv run python scripts/prefetch_models.py` to own a copy instead.
+`./lofi.sh status` labels adopted models `(borrowed → /real/path)`. Borrowed
+means borrowed: a re-download of that model follows the symlink into your
+home cache, and zipping up the repo excludes borrowed weights — delete the
+link and `ollama pull` / `uv run python scripts/prefetch_models.py` to own a
+copy instead.
 
 ---
 
-## Choosing local models for your machine
+## Running on Windows
 
-The workshop question: *what can this computer actually run?* The process:
+Two routes, both verified end-to-end on real hardware:
 
-1. **Profile the machine.** `./configure.sh` reads your RAM/CPU/GPU and prints
-   STT/LLM/TTS combos sized to it (`-v` for the full report with per-slot model
-   catalogs ranked by fit, `-i` to pick interactively). Rule of thumb: a
-   quantized model takes roughly its parameter count in GB (a 7b ≈ 4-5 GB, a
-   14b ≈ 9 GB), and *everything resident at once* has to fit — front model +
-   analyst + embedder + STT + TTS. `run_ollama.sh` sets
-   `OLLAMA_MAX_LOADED_MODELS=3` and `OLLAMA_KEEP_ALIVE=30m` so the working set
-   stays loaded instead of thrashing.
-   The suggestions are more than RAM math — the catalog is pre-filtered,
-   because "biggest that fits" alone happily recommends the wrong model:
-   - **Specialist weed-out, by name.** Families matching
-     `code`/`math`/`sql`/`rerank`/`embed`/`guard`/`shield` (qwen3-coder,
-     mathstral, sqlcoder, llama-guard…) are tuned for one job and make poor
-     conversational analysts, however well they fit.
-   - **Legacy weed-out, by age.** A family whose last ollama.com update is
-     over a year old (qwen 1, llama2) only ranks high on *cumulative*
-     downloads; its own successors outclass it at every size.
-   - **Reasoning models** are excluded from cascade picks — nothing strips
-     thinking tokens before the voice (the split *backend* is where they
-     belong).
+- **Native (simplest):** PowerShell + uv, no Linux layer, full machine RAM.
+  MoQ isn't available natively (its `moq-ffi` library ships no Windows
+  wheels) — use the WebSocket transport.
+- **WSL2:** the bot runs in Linux, your browser/mic/speakers stay on Windows.
+  You get the bash tooling (`./lofi.sh`, `./configure.sh`), at the cost of
+  installing WSL and a default RAM cap.
 
-   The filters shape suggestions, not availability: any model you set
-   explicitly is honored, and `./configure.sh --catalogs` (or
-   `./lofi.sh status -v`) lists everything unfiltered.
-2. **Measure, don't vibe.** The eval harness is the yardstick:
-   `uv run python evals/run_evals.py --stage split` scores a candidate
-   analyst on gold queries (accuracy, missed questions, latency);
-   `--stage front` checks a candidate front model never invents numbers and
-   defers records questions. `evals/sweep.sh` loops a list of candidates
-   through both and prints a leaderboard — edit the candidate lists and run it
-   against your own hardware.
-3. **Read the right numbers.** `answer_accuracy` is the headline;
-   `sentinel_on_data` is questions the analyst wrongly ignored;
-   `silent_on_chitchat` catches an analyst that butts into small talk;
-   `total_ms_mean` is what the wait feels like. A model that's 5 points more
-   accurate but twice as slow is usually the wrong trade for live voice —
-   that's what the fast/accurate toggle is for.
-4. **Mind residency.** Swapping models mid-session costs a multi-second reload.
-   The defaults keep fast mode on the same analyst weights (thinking off) for
-   exactly this reason.
+Either way, **expect speech-to-text to be the slow part**: without Apple
+Silicon, Whisper runs on the CPU. Two knobs if it drags:
+`LOFI_FASTER_WHISPER_MODEL` (a smaller model than the `DISTIL_MEDIUM_EN`
+default is faster and less accurate), or the tiny CPU-first engine:
+`uv sync --extra moonshine` + `LOFI_STT_ENGINE=moonshine`.
+
+### Route A: native Windows (PowerShell)
+
+No admin needed. In PowerShell:
+
+```powershell
+# one-time tools
+powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"
+winget install --id Git.Git          # if you don't have git
+winget install --id Ollama.Ollama    # the local LLM server
+
+# code + env (uv fetches its own Python 3.12)
+git clone https://github.com/vipyne/LO-FI.git
+cd LO-FI
+uv sync
+
+# models (one-time, online)
+uv run python scripts/prefetch_models.py
+
+# run — the bash launcher (lofi.sh) doesn't run natively; start the bot directly
+uv run python bot_browser.py --host localhost --port 7860
+```
+
+Then open **`http://localhost:7860`** in any browser, Connect, allow the mic,
+talk. Env vars in PowerShell are session-scoped assignments, e.g.:
+
+```powershell
+$env:LOFI_LLM_MODEL = "llama3.2:1b"
+$env:LOFI_ARCHITECTURE = "cascade"
+```
+
+Native Windows runs online sessions' `webrtc` transport without fallback:
+loopback UDP works here, unlike WSL2.
+
+### Route B: WSL2
+
+#### 1. Install WSL2 (one-time)
+
+Follow Microsoft's guide: <https://learn.microsoft.com/windows/wsl/install>.
+The short version: open an **admin** terminal (Win+X → "Terminal (Admin)"),
+run `wsl --install`, reboot, and create your Ubuntu username/password when the
+first launch asks. No special networking configuration is needed — the
+WebSocket transport below works in WSL2's default (NAT) networking mode.
+
+#### 2. Set up lofi inside WSL
+
+Open Windows Terminal → the **Ubuntu** profile (the ˅ dropdown next to the
+new-tab button), then run the bare-Linux setup block from
+[Setup step 1](#1-clone-install-system-deps-and-sync-the-environment) — deps
+(git, curl, uv, Ollama), clone, `uv sync`. Two WSL-specific rules:
+
+- **Clone into the Linux filesystem** (`~/`), never `/mnt/c/…` — the Windows
+  mount is slow and flaky for this workload.
+- Everything below runs **inside the Ubuntu tab**; only the browser runs on
+  Windows.
+
+#### 3. Pick models that fit your RAM
+
+WSL shares the machine's RAM, and every resident model has to fit —
+`./configure.sh` profiles the machine and ranks model combos that fit (`-i`
+to pick interactively). The default pair (qwen2.5:7b front + qwen3:8b
+analyst) wants **16 GB+**. On a ~8 GB machine, drop to a single small model
+in `cascade` mode before prefetching:
+
+```bash
+export LOFI_ARCHITECTURE=cascade LOFI_LLM_MODEL=llama3.2:1b LOFI_RAG_LLM_MODEL=llama3.2:1b
+uv run python scripts/prefetch_models.py
+./lofi.sh index-rag          # optional: build the RAG index
+```
+
+That tier is **proof-of-life, not accuracy** — it converses and exercises the
+whole pipeline, but a 1B model fumbles records questions (measured: as a
+front model it invents numbers on ~1 in 3 data questions, which is why the
+small-machine recipe uses `cascade`, not the `llmwithbackend` default). Real
+records-accuracy wants the 16 GB tier — the
+[RAM budget](#choosing-models-for-your-hardware) shows what each step up buys.
+
+#### 4. Run
+
+```bash
+./lofi.sh start
+```
+
+(`lofi.sh` detects WSL and skips its browser auto-open — the right browser is
+on the Windows side.) Then, in **a browser on Windows**, open the page with
+**`?transport=websocket`** — WebSocket is the only transport that works here:
+MoQ's QUIC and WebRTC's media are both UDP, which never crosses the
+Windows↔WSL boundary (verified in NAT and mirrored modes, Hyper-V firewall
+open, raw-UDP probe). The WebSocket transport is pure TCP and crosses the
+boundary the same way the web page itself does. Offline sessions default to
+websocket anyway; an **online** session defaults to `webrtc` and falls back
+to websocket on its own, but that costs ~15–30 s of failing first — so pin
+the param and the mode toggle leaves the transport alone:
+
+```
+http://localhost:7860/?transport=websocket
+```
+
+Then click **Connect**, allow the mic, talk. Don't force `?transport=moq`
+here either.
+
+### Troubleshooting
+
+- **WSL only sees about half your RAM** — that's its default cap, and it's
+  what `./configure.sh` and Ollama see. A 16 GB machine shows ~8 GB inside
+  Ubuntu. Raise it: edit `%UserProfile%\.wslconfig` on the Windows side
+  (`vi /mnt/c/Users/<you>/.wslconfig` from bash works) to
+
+  ```ini
+  [wsl2]
+  memory=12GB
+  ```
+
+  then `wsl --shutdown` in PowerShell and relaunch. With 12 GB the real
+  16 GB-tier model pair usually fits.
+- **Forgot your Ubuntu sudo password**: in PowerShell, `wsl -d Ubuntu -u root`,
+  then `passwd <your-username>`, `exit`. (A once-a-day MOTD error in the root
+  shell is harmless noise.)
+- **First reply after startup is slow**: that's the model loading into RAM;
+  `OLLAMA_KEEP_ALIVE=30m` keeps it resident afterwards.
+- **A `(could not resolve models — run 'uv sync' and retry)` line at start**:
+  cosmetic; the bot still starts.
+- **Editing Windows-side files from bash**: they're under `/mnt/c/Users/<you>/…`
+  (e.g. `vi /mnt/c/Users/<you>/.wslconfig`) — handy, but keep the repo itself
+  in `~/`.
+
+### Intel Macs
+
+Use [`intel-mac` branch](../../tree/intel-mac).
 
 ---
 
@@ -877,35 +786,16 @@ prompt, tool description and canned line lives in
 [`tunables.py`](tunables.py), and editing that file IS the mechanism. Landmine
 comments mark measured, byte-sensitive text.
 
-#### Migrating from the old single `.env`
-
-Before the split, one `.env` held everything. Nothing breaks if you leave it
-that way — `.env` is still loaded, so stray settings still apply — but on
-startup `config.py` and `./lofi.sh` print one line naming each `LOFI_*`
-setting it found there and asking you to move it. The migration:
-
-```bash
-cp .env .lofirc
-```
-
-```bash
-cat > .env <<'EOF'
-OPENAI_API_KEY=
-DEEPGRAM_API_KEY=
-CARTESIA_API_KEY=
-EOF
-```
-
-Then delete the three key lines from `.lofirc` if you'd pasted them there.
-A second, older warning names unprefixed settings (`STT_ENGINE`,
-`LLM_MODEL`, …) left from before everything took the `LOFI_` prefix — the
-only unprefixed names still read are the four external ones in the table
-below.
+A `LOFI_*` setting found in `.env` still applies, and startup prints one line
+per stray name asking you to move it to `.lofirc`. The same startup check
+names any unprefixed settings (`STT_ENGINE`, `LLM_MODEL`, …) — the only
+unprefixed names the repo reads are the four external ones below.
 
 **`LOFI_` means it's ours.** Anything read by this repo carries the prefix, so
-you can tell at a glance what's safe to change and what belongs to someone else.
-Exactly four variables are **external** — read by third-party software, keeping
-their upstream names because renaming them would break the tool that reads them:
+you can tell at a glance what's safe to change and what belongs to someone
+else. Exactly four variables are **external** — read by third-party software,
+keeping their upstream names because renaming them would break the tool that
+reads them:
 
 | External variable | Read by |
 |---|---|
@@ -913,8 +803,8 @@ their upstream names because renaming them would break the tool that reads them:
 | `OLLAMA_MODELS`, `OLLAMA_HOST` | the `ollama` binary |
 
 If you already export one of those globally, it affects lofi too. Note that
-`LOFI_OLLAMA_BASE_URL` is *ours* despite the name — it's the URL the bot dials,
-not something ollama reads.
+`LOFI_OLLAMA_BASE_URL` is *ours* despite the name — it's the URL the bot
+dials, not something ollama reads.
 
 ### Prompts and model defaults: `tunables.py`
 
@@ -925,17 +815,16 @@ measured, byte-sensitive text — read them before editing.
 
 | Variable | Default | What it does |
 |---|---|---|
-| `LOFI_LLM_MODEL` | `qwen2.5:7b` | Ollama tag for the conversation model (and, in `cascade`, the four retrieval tools). Same string `run_ollama.sh` pulls and the bot serves. Smaller machines: see the model table above. |
-| `LOFI_ARCHITECTURE` | `split` | `split` (default) \| `cascade` — see [Two architectures](#two-architectures-one-env-var). |
-| `LOFI_RAG_LLM_MODEL` | `qwen3:8b` | Ollama tag for the records analyst backend (`split`). Needs a model that emits real API tool calls — `nemotron-3-nano:4b` narrates them as JSON text and fails as the split backend. |
+| `LOFI_LLM_MODEL` | `qwen2.5:7b` | Ollama tag for the conversation model (and, in `cascade`, the four retrieval tools). Same string `run_ollama.sh` pulls and the bot serves. Smaller machines: see [Choosing models](#choosing-models-for-your-hardware). |
+| `LOFI_ARCHITECTURE` | `llmwithbackend` | `llmwithbackend` (default) \| `cascade` — see [Two architectures](#two-architectures-one-env-var). Online sessions are always a cascade; this knob applies offline only. |
+| `LOFI_RAG_LLM_MODEL` | `qwen3:8b` | Ollama tag for the records analyst backend (`llmwithbackend`). Needs a model that emits real API tool calls — `nemotron-3-nano:4b` narrates them as JSON text and fails as the analyst backend. |
 | `LOFI_RAG_FAST_LLM_MODEL` | `$LOFI_RAG_LLM_MODEL` | Analyst model for the UI's ⚡ fast mode (thinking always off there). A *distinct* fast model needs `OLLAMA_MAX_LOADED_MODELS=4` so nothing gets evicted. |
-| `LOFI_WAIT_LESSON_LANGUAGE` | *(empty = off)* | Offline (`split` only): the front teaches one phrase in that language while the analyst works. Online: two-way practice — the session answers in that language whenever you speak it. |
+| `LOFI_PRACTICE_LANGUAGE` | *(empty = off)* | Online two-way practice: the session answers in that language whenever you speak it. Offline sessions ignore it. |
 | `LOFI_OLLAMA_BASE_URL` | `http://localhost:11434/v1` | OpenAI-compatible Ollama endpoint (note the trailing `/v1`). The RAG embedder talks to the same host minus `/v1`. |
 | `LOFI_EMBED_MODEL` | `nomic-embed-text` | Ollama model tag for RAG embeddings. Pull it with `ollama pull nomic-embed-text`. |
-| `LOFI_RAG_DATA_DIR` | `./data` | The documents to index (`.txt`/`.md`/`.pdf`) — put files here, then `./lofi.sh index-rag`. Absolute, `~`, or relative-to-repo. |
-| `LOFI_RAG_INDEX_DIR` | `$LOFI_MODEL_DIR/rag-index` | Directory the index lives in. |
-| `LOFI_RAG_DB` | `$LOFI_RAG_INDEX_DIR/lofi.db` | The single SQLite file: typed rows, FTS5 full text, and `sqlite-vec` vectors. |
-| `LOFI_RAG_TOP_K` | `4` | Legacy knob from the always-on injection era; nothing reads it now — the analyst's tools cap themselves at five results. |
+| `LOFI_RAG_DATA_DIR` | `./data` | The documents to index (`.txt`/`.md`/`.pdf`/`.csv`) — put files here, then `./lofi.sh index-rag`. Absolute, `~`, or relative-to-repo. |
+| `LOFI_RAG_INDEX_DIR` | `$LOFI_MODEL_DIR/rag-index` | Directory the indexes live in. |
+| `LOFI_RAG_DB` | `$LOFI_RAG_INDEX_DIR/lofi.db` | The offline SQLite file: typed rows, FTS5 full text, and `sqlite-vec` vectors. |
 | `LOFI_RAG_CHUNK_TOKENS` | `500` | Chunk budget in whitespace-split words. |
 | `LOFI_RAG_CHUNK_OVERLAP` | `50` | Words repeated between consecutive chunks. |
 | `LOFI_PUBLIC_RAG_DATA_DIR` | `./data/public` | The only documents an online session can retrieve. Also indexed into the offline db. |
@@ -976,8 +865,8 @@ measured, byte-sensitive text — read them before editing.
 | `OLLAMA_MODELS` **[external]** | `$LOFI_MODEL_DIR/ollama` | Ollama store location (used by `run_ollama.sh`). Use an absolute path if you set it — ollama resolves relative paths against its own cwd. *Advanced.* |
 | `OLLAMA_HOST` **[external]** | `127.0.0.1:11434` | Host the Ollama server binds to (used by `run_ollama.sh`). *Advanced.* |
 
-Changing `LOFI_LLM_MODEL` swaps which local model answers; changing `LOFI_KOKORO_VOICE`
-changes the voice you hear.
+Changing `LOFI_LLM_MODEL` swaps which local model answers; changing
+`LOFI_KOKORO_VOICE` changes the voice you hear.
 
 ---
 
@@ -985,75 +874,37 @@ changes the voice you hear.
 
 Both bots share one brain (`pipeline.py` — the same STT → VAD → LLM → TTS
 pipeline, built offline or online from the session's mode); they differ only
-in the transport. The STT/LLM/TTS services are
-built in `services.py`, dispatched on `LOFI_STT_ENGINE` / `LOFI_TTS_ENGINE` —
-so swapping engines (via `.lofirc` or `./configure.sh -i`) never touches a bot
-file you may have customized.
+in the transport. The STT/LLM/TTS services are built in `services.py`,
+dispatched on `LOFI_STT_ENGINE` / `LOFI_TTS_ENGINE` — so swapping engines
+(via `.lofirc` or `./configure.sh -i`) never touches a bot file you may have
+customized.
 
 ```
 lofi/
-├── bot.py                    # CLI / headphones — LocalAudioTransport
-├── bot_browser.py                # browser bot — websocket/moq/webrtc, serves client/dist
+├── bot_browser.py            # the browser bot — serves client/dist, picks the session's stack
+├── bot.py                    # the headphones/CLI bot — PyAudio in and out
 ├── pipeline.py               # the one build_pipeline() every bot shares
 ├── services.py               # STT/LLM/TTS builders, engine-dispatched
-├── config.py                 # env-driven settings, zero-config defaults
 ├── tunables.py               # every prompt + model defaults — THE file to edit
-├── rag_agent.py              # the records analyst (native Ollama API, thinking on)
-├── tools.py                  # the four retrieval tool schemas + Pipecat wiring
+├── config.py                 # env-driven settings, zero-config defaults
 ├── retrieval.py              # lookup / filter_rows / aggregate / semantic_search
-├── store.py                  # the SQLite schema (rows + FTS5 + sqlite-vec)
 ├── ingest.py                 # extract → serialize → chunk → embed → index
-├── silence_watchdog.py       # "I'm still working on it" during long lookups
-├── spoken_text_filter.py     # TTS filter: "$3,000" → "three thousand dollars"
-│
-├── lofi.sh                   # start | stop | status | index-rag | consolidate | configure
-├── configure.sh              # what can this machine handle? (-v full report, -i model picker)
-│
-├── scripts/
-│   ├── model_dir.sh          # resolves LOFI_MODEL_DIR for the shell scripts
-│   │                         #   (config.py does the same for Python)
-│   ├── run_ollama.sh         # relocate Ollama store + serve + pull the LLM
-│   ├── prefetch_models.py    # one-time online warm-up for every default model
-│   ├── print_models.py       # the "what's running" panel / status lines
-│   ├── check_wheels.py       # tripwire: every dep must have a wheel per platform
-│   ├── check_audio.py        # diagnostic: raw mic input level meter
-│   └── check_vad.py          # diagnostic: Silero VAD confidence/volume vs thresholds
-│
-├── data/                     # the documents the index is built from
-│   ├── private/              # transactions + notes — offline sessions only
-│   └── public/               # IRS publications — the online session's whole world
-│
+├── lofi.sh                   # start | stop | status | index-rag | consolidate
+├── configure.sh              # what can this machine handle?
+├── data/                     # private/ (offline only) + public/ (online's whole world)
 ├── client/                   # the browser UI (Vite + TypeScript; prebuilt in client/dist)
-├── evals/                    # eval harness: run_evals.py, queries.jsonl, sweep.sh
-├── tests/                    # offline pytest suite (no network, fake embedder)
-│
-├── lofirc.example            # documented config knobs (copy to .lofirc)
-├── env.example               # the three online-session API key names (copy to .env)
-├── .python-version           # 3.12
-├── pyproject.toml            # uv project + pinned deps
-├── uv.lock                   # locked dependency versions
-│
-└── models/                   # ALL checkpoints live here — $LOFI_MODEL_DIR,
-    │                         # relocatable (gitignored; created by setup)
-    ├── daily/                # daily-js browser bundles (served at /daily/)
-    ├── huggingface/          # Whisper-MLX + faster-whisper + Moonshine (HF cache)
-    ├── kokoro/               # Kokoro onnx + voices
-    ├── piper/                # Piper voices (if LOFI_TTS_ENGINE=piper)
-    ├── rag-index/            # lofi.db + lofi-public.db (./lofi.sh index-rag)
-    └── ollama/               # Ollama LLM store
+└── models/                   # ALL checkpoints — $LOFI_MODEL_DIR, relocatable, gitignored
 ```
 
 ---
 
 ## Not financial advice
 
-The bot is a private *thinking partner*, not a licensed financial advisor. It has no
-access to your real accounts and won't invent your numbers. For big, irreversible,
-or high-stakes decisions, confirm with a qualified professional.
-Ha, claude wrote this^ when I said I wanted to create a fully offline bot that I could 
-talk to about my personal finances. But yes, _always_ consult a human after consulting
-a bot.
+The bot is a private *thinking partner*, not a licensed financial advisor. It
+has no access to your real accounts, only the documents you give it access
+to. Always, _always_ consult a human after consulting a bot, in all matters,
+financial or not.
 
 ## Emojis
 claude did _not_ add enough/any emojis so: 
-🎉🎊🥳🎈🎁🎀🌟✨💫⭐🌈🔥💥⚡☀️🌙🌛🌜🌞🪐🌍🌎🌏🌊🏔️⛰️🌋🗻🏕️🏖️🏜️🏝️🌅🌄🌇🌆🏙️🌃🌌🎆🎇🌠🌉🍀🌿🍃🌾🌵🌴🌳🌲🎄🌰🍄🌻🌺🌸🌼🌷🌹🥀💐🏵️🌊🐠🐟🐬🐳🐋🦈🐙🦑🦐🦞🦀🐚🐌🦋🐛🐝🐞🦗🕷️🦂🐢🐍🦎🦖🦕🐙🦭🦦🦥🐾🐕🐈🐇🐿️ 🦫🦃🐔🐓🐣🐤🐥🦆🦢🦅🦉🦚🦜🕊️🐧🐦🦩🦨🐘🦏🦛🐪🐫🦒🦓🐂🐃🐄🐎🐖🐏🐑🦙🐐🦌🐕‍🦺🐈‍⬛🦮🐩🐾🍎🍏🍐🍊🍋🍌🫐🍈🍒🍑🥭🍍🥥🥝🍅🍆🥑🥦🥬🥒🌶️ 🫑🌽🥕🫒🧄🧅🥔🍠🥐🥯🍞🥖🥨🧀🥚🍳🧈🥞🧇🥓🥩🍗🍖🌭🍔🍟🍕🫓🥪🥙🧆🌮🌯🫔🥗🥘🫕🥫🍝🍜🍲🍛🍣🍱🥟🦪🍤🍙🍚🍘🍥🥠🥮🍢🍡🍧🍨🍦🥧🧁🍰🎂🍮🍭🍬🍫🍿🍩🍪🌰🥜🍯🥛🍼☕🫖🍵🧃🥤🧋🍶🍺🍻🥂🍷🥃🍸🍹🧉🍾🧊🥄🍴🍽️🥣🥡🥢🧂⚽🏀🏈⚾🥎🎾🏐🏉🥏🎱🪀🏓🏸🏒🏑🥍🏏🪃🥅⛳🪁🏹🎣🤿🥊🥋🎽🛹🛼🛷⛸️ 🥌🎿⛷️ 🏂🪂🏋️ 🤼🤸⛹️ 🤺🤾🏌️ 🏇🧘🏄🏊🤽🚣🧗🚵🚴🏆🥇🥈🥉🏅🎖️ 🏵️ 🎗️ 🎫🎟️ 🎪🤹🎭🩰🎨🎬🎤🎧🎼🎹🥁🎷🎺🎸🪕🎻🎲♟️🎯🎳🎮🎰🧩
+🎉🎊🥳🎈🎁🎀🌟✨💫⭐🌈🔥💥⚡☀️🌙🌛🌜🌞🪐🌍🌎🌏🌊🏔️⛰️🌋🗻🏕️🏖️🏜️🏝️🌅🌄🌇🌆🏙️🌃🌌🎆🎇🌠🌉🍀🌿🍃🌾🌵🌴🌳🌲🎄🌰🍄🌻🌺🌸🌼🌷🌹🥀💐🏵️🌊🐠🐟🐬🐳🐋🦈🐙🦑🦐🦞🦀🐚🐌🦋🐛🐝🐞🦗🕷️🦂🐢🐍🦎🦖🦕🐙🦭🦦🦥🐾🐕🐈🐇🐿️ 🦫🦃🐔🐓🐣🐤🐥🦆🦢🦅🦉🦚🦜🕊️🐧🐦🦩🦨🐘🦏🦛🐪🐫🦒🦓🐂🐃🐄🐎🐖🐏🐑🦙🐐🦌🐕‍🦺🐈‍⬛🦮🐩🐾🍎🍏🍐🍊🍋🍌🫐🍈🍒🍑🥭🍍🥥🥝🍅🍆🥑🥦🥬🥒🌶️ 🫑🌽🥕🫒🧄🧅🥔🍠🥐🥯🍞🥖🥨🧀🥚🍳🧈🥞🧇🥓🥩🍗🍖🌭🍔🍟🍕🫓🥪🥙🧆🌮🌯🫔🥗🥘🫕🥫🍝🍜🍲🍛🍣🍱🥟🦪🍤🍙🍚🍘🍥🥠🥮🍢🍡🍧🍨🍦🥧🧁🍰🎂🍮🍭🍬🍫🍿🍩🍪🌰🥜🍯🥛🍼☕🫖🍵🧃🥤🧋🍶🍺🍻🥂🍷🥃🍸🍹🧉🍾🧊🥄🍴🍽️🥣🥡🥢🧂⚽🏀🏈⚾🥎🎾🏐🏉🥏🎱🪀🏓🏸🏒🏑🥍🏏🪃🥅⛳🪁🏹🎣🤿🥊🥋🎽🛹🛼🛷⛸️ 🥌🎿⛷️ 🏂🪂🏋️ 🤼🤸⛹️ 🤺🤾🏌️ 🏇🧘🏄🏊🤽🚣🧗🚵🚴🏆🥇🥈🥉🏅🎖️ 🏵️ 🎗️ 🎫🎟️ 🎪🤹🎭🩰🎨🎬🎤🎧🎼🎹🥁🎷🎸🪕🎻🎲♟️🎯🎳🎮🎰🧩

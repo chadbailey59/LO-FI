@@ -65,7 +65,6 @@ from tunables import (
     FILLER_PHRASE,
     QUESTION_PREFIX,
     SPLIT_FRONT_PROMPT,
-    WAIT_LESSON_NUDGE,
     online_system_prompt,
     system_prompt,
 )
@@ -114,7 +113,7 @@ def _index_ready(db_path) -> bool:
 def build_records_tools() -> list | None:
     """Cascade only: the four tools go straight on the conversation model."""
     db_path = config.rag_db_path()
-    if config.architecture() == "split" or not _index_ready(db_path):
+    if config.architecture() == "llmwithbackend" or not _index_ready(db_path):
         return None
     embedder = ingest.OllamaEmbedder(config.ollama_api_url(), config.embed_model())
     return tools.build_tools(db_path, embedder)
@@ -350,7 +349,7 @@ def build_online_pipeline(transport: BaseTransport) -> BuiltBot:
     """Online session: Deepgram STT -> OpenAI LLM over the public index ->
     Cartesia TTS. Nothing here opens the private db or reaches Ollama."""
     public_tools = build_public_tools()
-    prompt = online_system_prompt(language=config.wait_lesson_language())
+    prompt = online_system_prompt(language=config.practice_language())
     context = (
         LLMContext(messages=[{"role": "system", "content": prompt}], tools=public_tools)
         if public_tools
@@ -366,8 +365,6 @@ def build_online_pipeline(transport: BaseTransport) -> BuiltBot:
             build_online_stt(),
             user_aggregator,
             llm,
-            # No lesson callback: the wait-window lesson fills a 10-70 s local
-            # analyst turn, and cloud retrieval lands in about a second.
             SilenceWatchdog(),
             tts,
             transport.output(),
@@ -394,7 +391,7 @@ def build_pipeline(transport: BaseTransport, mode: str = "offline") -> BuiltBot:
         return build_online_pipeline(transport)
     records_tools = build_records_tools()
     db_path = config.rag_db_path()
-    splitting = config.architecture() == "split" and _index_ready(db_path)
+    splitting = config.architecture() == "llmwithbackend" and _index_ready(db_path)
     if splitting:
         # Load the analyst's weights now, in the background, so the first
         # delegation doesn't pay the cold load while the user waits.
@@ -431,42 +428,17 @@ def build_pipeline(transport: BaseTransport, mode: str = "offline") -> BuiltBot:
     @front.event_handler("on_function_calls_started")
     async def on_function_calls_started(service, function_calls):
         await service.push_frame(RTVIServerMessageFrame(data={"type": BUSY_MESSAGE_TYPE}))
-        # Model is silent during the tool call (split: respond_on_delegate off,
-        # see build_records_connector), so speak the canned filler — out of the
-        # context: waiting lines there teach the front to answer records
-        # questions with waiting lines (measured 2026-10-19 and 2026-10-20).
         await tts.queue_frame(TTSSpeakFrame(FILLER_PHRASE, append_to_context=False))
-
-    processors = [
-        transport.input(),
-        build_vad_processor(),
-        build_stt(),
-        user_aggregator,
-    ]
-    lesson_language = config.wait_lesson_language()
-    lesson = None
-    if splitting and lesson_language:
-        from pipecat.frames.frames import LLMMessagesAppendFrame
-
-        async def lesson():
-            await llm.queue_frame(
-                LLMMessagesAppendFrame(
-                    messages=[
-                        {
-                            "role": "developer",
-                            "content": WAIT_LESSON_NUDGE.format(language=lesson_language),
-                        }
-                    ],
-                    run_llm=True,
-                )
-            )
 
     pipeline = Pipeline(
         [
-            *processors,
+            transport.input(),
+            build_vad_processor(),
+            build_stt(),
+            user_aggregator,
             llm,
             *([BackendToolPanel()] if splitting else []),
-            SilenceWatchdog(lesson=lesson),
+            SilenceWatchdog(),
             tts,
             transport.output(),
             assistant_aggregator,

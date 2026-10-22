@@ -6,11 +6,11 @@
 
 LOFI_MODEL_DIR=./models
 
-#LOFI_ARCHITECTURE=split                     # split (default: front + analyst backend) | cascade (one model, stable fallback)
+#LOFI_ARCHITECTURE=llmwithbackend            # llmwithbackend (default: front + analyst backend) | cascade (one model, stable fallback)
 
 #LOFI_LLM_MODEL=qwen2.5:7b
 #LOFI_RAG_LLM_MODEL=qwen3:8b                 # records analyst backend; needs real API tool calls
-#LOFI_WAIT_LESSON_LANGUAGE=Spanish           # split: while the analyst works, the front teaches one related phrase (default off)
+#LOFI_PRACTICE_LANGUAGE=Spanish              # online: the session answers in this language whenever you speak it (default off)
 #LOFI_RAG_FAST_LLM_MODEL=                    # analyst fast-mode model; defaults to LOFI_RAG_LLM_MODEL
 
 #LOFI_OLLAMA_BASE_URL=http://localhost:11434/v1
