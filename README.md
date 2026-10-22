@@ -1,40 +1,23 @@
-# lofi — a local, fully-offline Pipecat voice bot
+# LO-FI — a local, fully-offline Pipecat voice bot
 
-> WIP but isn't everything?
-
-A voice bot that runs Key-Free & **100% offline**. Speech-to-text, the language
+An AI voice bot that runs Key-Free & **100% offline**. Speech-to-text, the language
 model, and text-to-speech are all local services; your documents never leave
-your machine. Built on [Pipecat](https://github.com/pipecat-ai/pipecat)
-**≥ 1.13** (the default architecture rides `LLMWithBackend`/`BackendLLMWorker`),
-and meant to double as a clear, reproducible **example** of how to wire up a
-fully-local Pipecat bot.
-
-The v1 personality is a **private financial thinking partner**: something you
+your machine. Built using [Pipecat](https://github.com/pipecat-ai/pipecat)
+**≥ 1.13** and [Ollama](https://ollama.com/). Its default prompts steer it
+to be a private financial thinking partner: something you
 can talk through money decisions with, out loud, knowing nothing you say
 leaves the computer.
 
-Every session picks a side before you Connect: **🔌 offline** (the default —
-the local stack over all your data) or **☁️ online** (a Deepgram /
-OpenAI / Cartesia cascade over the public documents only). See
-[Online sessions](#online-sessions-the-other-half-of-the-toggle).
-
-The happy path is **offline, in a browser**: the browser's `getUserMedia`
-gives echo cancellation for free, and the page talks to the bot over
-loopback — no internet involved. Everything below assumes it. Headphones/CLI,
-Windows, and small machines each have [their own section](#running-on-windows).
+There is also an online version, requiring STT, LLM, and TTS service API keys.
+That version is an ideal language learning partner. Read on to learn more.
 
 ---
 
 ## Requirements
 
-- **An Apple Silicon Mac** — Whisper-MLX (the default STT) uses Apple's MLX
-  framework. Linux and Windows run CPU STT instead; Intel Macs use a dedicated
-  branch — see [Other platforms](#running-on-windows).
 - **~15 GB free disk** for the models; **16 GB+ RAM** for the default model
-  pair (smaller tiers exist — see
-  [Choosing models](#choosing-models-for-your-hardware)).
-- **Python 3.12** (pinned; 3.14 is too new for the ML wheels). A plain
-  `uv sync` needs no compiler — everything installs from prebuilt wheels.
+  pair (smaller tiers exist — see [Choosing models](#choosing-models-for-your-hardware)).
+- **Python 3.12** (pinned; 3.14 is too new for the ML wheels).
 - **[uv](https://docs.astral.sh/uv/)** — Python package manager.
 - **[Ollama](https://ollama.com/)** — serves the local LLM.
 - **Any web browser** — audio I/O and echo cancellation.
@@ -60,7 +43,7 @@ Ctrl+C; then turn off wi-fi if you want to show off and then:
 ```
 
 Open http://localhost:7860 in any browser, click Connect & have a
-conversation.
+conversation. This defaults to offline,
 
 ## Setup
 
@@ -68,7 +51,7 @@ conversation.
 
 ```bash
 git clone git@github.com:vipyne/LO-FI.git && cd LO-FI
-uv sync                       # creates .venv and installs everything (Python 3.12)
+uv sync
 ```
 
 Starting from a bare Linux box or a fresh Windows WSL2 (Ubuntu) shell — no
@@ -78,7 +61,7 @@ git, no uv, no Ollama yet? This is the whole setup:
 # deps
 sudo apt-get update && sudo apt-get install -y git curl
 curl -LsSf https://astral.sh/uv/install.sh | sh
-source ~/.local/bin/env        # or restart the shell so `uv` is on PATH
+source ~/.local/bin/env
 curl -fsSL https://ollama.com/install.sh | sh
 
 # code
@@ -86,10 +69,9 @@ git clone https://github.com/vipyne/LO-FI.git && cd LO-FI
 uv sync
 ```
 
-(On WSL2, clone into the Linux filesystem — `~/`, not `/mnt/c/…`.)
-
-Optionally copy the settings template (everything is optional — the bot runs
-with an empty or absent `.lofirc`):
+> [!IMPORTANT]
+> On WSL2, clone into the Linux filesystem — `~/`, not `/mnt/c/…`.
+> Want more Windows specific instructions? See [Running on Windows](#running-on-windows)
 
 ```bash
 cp lofirc.example .lofirc
