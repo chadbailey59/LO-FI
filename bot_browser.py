@@ -36,6 +36,11 @@ import store
 from bot import _configure_logging, _ollama_models_to_check, _preflight_local
 from moq_transport import moq_transport_params, register_moq_handlers
 from pipeline import ONLINE_MODE, build_pipeline, public_rag_summary
+from scripts.prefetch_models import (
+    DAILY_BUNDLE_NAMES,
+    daily_bundle_path,
+    daily_bundle_url,
+)
 from scripts.print_models import model_entries
 
 # Shell env wins over .env (matches config.py and lofi.sh).
@@ -59,7 +64,8 @@ def _serve_client_dist(app) -> None:
     every bot utterance. Everything the page loads is same-origin, so the
     isolation costs nothing.
     """
-    from fastapi.responses import FileResponse
+    from fastapi import HTTPException
+    from fastapi.responses import FileResponse, RedirectResponse
     from fastapi.staticfiles import StaticFiles
 
     @app.middleware("http")
@@ -78,6 +84,24 @@ def _serve_client_dist(app) -> None:
         return FileResponse(
             CLIENT_DIST / "index.html", headers={"Cache-Control": "no-cache"}
         )
+
+    @app.get("/daily/{name}", include_in_schema=False)
+    async def daily_bundle(name: str):
+        # Both browser transports stand up a DailyMediaManager, and daily-js
+        # lazy-loads its call machine at device init (which lazy-loads the
+        # audio processor). main.ts points daily-js at this directory; serve
+        # the prefetched copy, else send it to the versioned CDN so an online
+        # session works without the prefetch.
+        if name not in DAILY_BUNDLE_NAMES:
+            raise HTTPException(status_code=404)
+        bundle = daily_bundle_path(name)
+        if bundle.is_file():
+            return FileResponse(bundle, media_type="text/javascript")
+        logger.warning(
+            f"Daily bundle not prefetched ({bundle}) — redirecting to the CDN. "
+            "Airgapped sessions need: uv run python scripts/prefetch_models.py"
+        )
+        return RedirectResponse(daily_bundle_url(name), status_code=302)
 
 
 OFFLINE_MODE = "offline"

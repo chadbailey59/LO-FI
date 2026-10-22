@@ -18,6 +18,10 @@ weight locally. What it fetches:
     * Kokoro (TTS)       — ONNX model + voices bundle.
     * Silero VAD         — *bundled inside the pipecat package* (no download).
     * Smart Turn v3      — *bundled inside the pipecat package* (no download).
+    * Daily bundles — the browser client's device plumbing; daily-js lazy-loads
+      the call machine (and the call machine its audio processor) from
+      c.daily.co, so both have to be on disk for an airgapped browser session
+      (see bot_browser.py's /daily/ route).
 
 Config knobs (env or ./.env, all optional — sensible defaults):
     LOFI_MODEL_DIR            the one directory all models go in  (default ./models)
@@ -32,6 +36,7 @@ Config knobs (env or ./.env, all optional — sensible defaults):
 
 from __future__ import annotations
 
+import json
 import os
 import shutil
 import subprocess
@@ -54,6 +59,43 @@ import config  # noqa: E402
 from loguru import logger  # noqa: E402  (import after env is set, on purpose)
 
 OLLAMA_SERVE_TIMEOUT_SECS = 30
+
+# Both files daily-js expects next to each other under one bundle path: the
+# call machine, and the audio-processor chunk it webpack-lazy-loads relative to
+# itself the moment anything starts an audio-level observer (pipecat's
+# DailyMediaManager always does).
+DAILY_BUNDLE_NAMES = ("call-machine-object-bundle.js", "audio-processor-bundle.js")
+DAILY_BUNDLE_CDN = "https://c.daily.co/call-machine/versioned/{version}/static/"
+CLIENT_LOCK_FILE = Path(__file__).resolve().parent.parent / "client" / "package-lock.json"
+DAILY_LOCK_KEY = "node_modules/@daily-co/daily-js"
+
+
+def daily_js_version(lock_file: Path | None = None) -> str:
+    """The daily-js version npm actually installed, from client/package-lock.json.
+
+    The bundle URL is versioned and daily-js interpolates its OWN version into
+    it, so the lock file is the only source that cannot drift from what the
+    built client asks for.
+    """
+    lock_file = lock_file or CLIENT_LOCK_FILE
+    try:
+        packages = json.loads(lock_file.read_text())["packages"]
+        return str(packages[DAILY_LOCK_KEY]["version"])
+    except (OSError, KeyError, ValueError) as exc:
+        raise SystemExit(
+            f"\n✖ could not read the daily-js version from {lock_file}\n"
+            "  Run 'npm install' in client/, then re-run this script.\n"
+        ) from exc
+
+
+def daily_bundle_url(name: str) -> str:
+    """CDN URL for one of the locked daily-js version's bundles."""
+    return DAILY_BUNDLE_CDN.format(version=daily_js_version()) + name
+
+
+def daily_bundle_path(name: str) -> Path:
+    """Where a vendored bundle lives: $LOFI_MODEL_DIR/daily/<name>."""
+    return Path(config.model_dir()) / "daily" / name
 
 
 def ollama_tags() -> list[str]:
@@ -183,6 +225,34 @@ def prefetch_kokoro() -> None:
     logger.success("Kokoro ready.")
 
 
+def prefetch_daily_bundles() -> None:
+    """Download daily-js's bundles into $LOFI_MODEL_DIR/daily.
+
+    Both browser transports stand up a DailyMediaManager for mic/device
+    plumbing, and daily-js fetches that engine from c.daily.co at device init.
+    bot_browser.py serves the downloaded copies at /daily/<name> and the client
+    points daily-js there, so an airgapped session makes no external request.
+    """
+    for name in DAILY_BUNDLE_NAMES:
+        url = daily_bundle_url(name)
+        dest = daily_bundle_path(name)
+        dest.parent.mkdir(parents=True, exist_ok=True)
+
+        logger.info(f"Daily: downloading {url} → {dest} ...")
+        try:
+            with urllib.request.urlopen(url, timeout=120) as resp:
+                payload = resp.read()
+        except (urllib.error.URLError, OSError) as exc:
+            raise SystemExit(
+                f"\n✖ could not download a Daily bundle\n"
+                f"  {url}\n  {exc}\n"
+                "  Check your connection and re-run this script.\n"
+            ) from exc
+
+        dest.write_bytes(payload)
+        logger.success(f"Daily: {name} ready ({len(payload) / 1e6:.1f} MB) → {dest}")
+
+
 def verify_bundled_models() -> None:
     """Instantiate the components whose weights ship inside the pipecat package.
 
@@ -211,6 +281,7 @@ def main() -> None:
     prefetch_ollama_models()
     prefetch_stt()
     prefetch_kokoro()
+    prefetch_daily_bundles()
     verify_bundled_models()
     logger.success("All models prefetched. You can now run the bot fully offline.")
 

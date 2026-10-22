@@ -1,3 +1,6 @@
+// The transports' own pinned dependency (hoisted, one copy — so this import
+// and theirs share daily-js's call-instance singleton).
+import Daily from "@daily-co/daily-js";
 import { PipecatClient, RTVIEvent, type TransportState } from "@pipecat-ai/client-js";
 import { MoqTransport } from "@pipecat-ai/moq-transport";
 import { SmallWebRTCTransport } from "@pipecat-ai/small-webrtc-transport";
@@ -30,6 +33,32 @@ export function pickTransport(mode: SessionMode): TransportName {
   const param = new URLSearchParams(window.location.search).get("transport");
   if (TRANSPORT_NAMES.includes(param as TransportName)) return param as TransportName;
   return mode === "online" ? "webrtc" : "websocket";
+}
+
+// Directory bot_browser.py serves the vendored call-machine bundle from.
+const DAILY_BUNDLE_DIR = "/daily";
+
+// WebSocket and SmallWebRTC transports stand up a Daily call object for their
+// mic/device plumbing (no Daily call involved), and daily-js lazy-loads its
+// call-machine engine from c.daily.co at device init — airgapped that fetch
+// burns a 20s timeout and the client never leaves "initializing". Create the
+// call object here, pointed at the server's local copy, and LOAD it before
+// the transports touch it: the override lives in `properties.dailyConfig`, and
+// the transports' `startCamera({dailyConfig: …})` shallow-merges its own over
+// ours, so it only survives if the bundle is loaded by then. The transports
+// reuse this instance via `getCallInstance()`. MoQ uses no call object.
+export function preloadDailyCallMachine(transportName: TransportName): Promise<void> {
+  if (transportName === "moq") return Promise.resolve();
+  const callObject =
+    Daily.getCallInstance() ??
+    Daily.createCallObject({
+      dailyConfig: {
+        bundlePathOverride: new URL(DAILY_BUNDLE_DIR, window.location.origin).toString(),
+      },
+    });
+  return callObject.load().catch((error: unknown) => {
+    console.warn("[lofi] daily call-machine preload failed:", error);
+  });
 }
 
 function buildTransport(transportName: TransportName) {

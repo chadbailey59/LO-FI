@@ -180,12 +180,22 @@ starting a temporary `ollama serve`
 if none is running — downloads the configured STT engine's weights
 (Whisper-MLX `large-v3-turbo`, ~1.5 GB, into `$LOFI_MODEL_DIR/huggingface`;
 faster-whisper/Moonshine on non-Apple-Silicon) and Kokoro's ONNX model +
-voices (~350 MB) into `$LOFI_MODEL_DIR/kokoro`, and load-checks the bundled
-Silero VAD (no download). Run this **once, while online**;
-after it finishes the bot can run with Wi-Fi off.
+voices (~350 MB) into `$LOFI_MODEL_DIR/kokoro`, downloads Daily's two browser
+bundles (the call machine and its audio processor, ~7.4 MB) into
+`$LOFI_MODEL_DIR/daily`, and load-checks the bundled Silero VAD (no download).
+Run this **once, while online**; after it finishes the bot can run with Wi-Fi
+off.
 
 Approximate total download: **~12 GB** (4.7 GB front LLM + 5.2 GB analyst +
-0.3 GB embeddings + 1.5 GB Whisper + 0.35 GB Kokoro).
+0.3 GB embeddings + 1.5 GB Whisper + 0.35 GB Kokoro + 7 MB Daily bundles).
+
+The Daily bundles are the browser client's device plumbing, not a model. Both
+browser transports stand up a daily-js call object for mic/device handling (no
+Daily call involved), and daily-js lazy-loads its call machine from
+`c.daily.co` at device init — airgapped that fetch times out and the page
+sticks at "initializing". `bot_browser.py` serves the prefetched copies at
+`/daily/<name>` and the client points daily-js there; without the prefetch the
+route redirects to the CDN, so an online session works either way.
 
 To serve the LLM for the bot (and re-pull `LOFI_LLM_MODEL` if needed):
 
@@ -442,10 +452,21 @@ this project, and nowhere to put one:
 - **Whisper-MLX and Kokoro** download anonymously from Hugging Face (none are
   gated); **Silero VAD** ships bundled with Pipecat.
 
+- **Daily's browser bundles** (the client's mic/device plumbing) are vendored
+  by the same prefetch and served same-origin.
+
 `.lofirc` is **config only** — model names, a voice, device indices, cache
 paths. It is gitignored, but nothing secret ever belongs in it. The single
 network event in an offline session's entire lifecycle is the one-time,
 anonymous model download in step 2.
+
+After the prefetch, an airgapped websocket or WebRTC session makes **zero**
+external requests. Two dead branches survive in the built client and neither
+blocks anything: daily-js ships a vendored Sentry client
+(`o77906.ingest.sentry.io`) for its own error telemetry, which fails silently
+offline; and the MoQ path's libav.js loader carries a `cdn.jsdelivr.net`
+fallback that the bundled local `libav-opus-*` asset preempts (MoQ is opt-in
+anyway).
 
 The one exception is the **online session mode**, which is opt-in per session
 and needs three keys. Those live in `.env` — three names, nothing else — and
@@ -1014,6 +1035,7 @@ lofi/
 │
 └── models/                   # ALL checkpoints live here — $LOFI_MODEL_DIR,
     │                         # relocatable (gitignored; created by setup)
+    ├── daily/                # daily-js browser bundles (served at /daily/)
     ├── huggingface/          # Whisper-MLX + faster-whisper + Moonshine (HF cache)
     ├── kokoro/               # Kokoro onnx + voices
     ├── piper/                # Piper voices (if LOFI_TTS_ENGINE=piper)

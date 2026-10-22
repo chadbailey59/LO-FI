@@ -4,6 +4,7 @@ import {
   attachBotAudio,
   createClient,
   pickTransport,
+  preloadDailyCallMachine,
   startBot,
   transportPinned,
   type SessionMode,
@@ -103,6 +104,10 @@ function fallBackToNextTransport(): boolean {
   return true;
 }
 
+// Before the transport exists: it reuses whatever call object daily-js
+// already holds, so the vendored-bundle override has to be set here.
+const dailyReady = preloadDailyCallMachine(transportName);
+
 const client = createClient(transportName, render);
 attachBotAudio(client);
 const transcript = attachTranscript(client, transcriptPane);
@@ -117,6 +122,7 @@ connectButton.addEventListener("click", async () => {
   connectButton.disabled = true;
   try {
     if (IDLE_STATES.includes(client.state)) {
+      await dailyReady;
       await client.connect(await startBot(transportName, sessionMode()));
     } else {
       await client.disconnect();
