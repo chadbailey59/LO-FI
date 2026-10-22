@@ -185,6 +185,7 @@ button {
   --cfg-analyst: #2a9d81;
   --cfg-tts: #0087a8;
   --cfg-embed: #9c8f00;
+  --cfg-missing: #c81e3c;
 }
 
 @media (prefers-color-scheme: dark) {
@@ -194,6 +195,7 @@ button {
     --cfg-analyst: #93e9be;
     --cfg-tts: #01cdfe;
     --cfg-embed: #fffb96;
+    --cfg-missing: #ff5d6c;
   }
 }
 
@@ -202,6 +204,8 @@ button {
 .cfg-analyst { color: var(--cfg-analyst); }
 .cfg-tts { color: var(--cfg-tts); }
 .cfg-embed { color: var(--cfg-embed); }
+/* A role with no weights on disk — the panel says so where its path would be. */
+.cfg-missing { color: var(--cfg-missing); font-weight: 600; }
 
 #rag-panel {
   margin-top: 1rem;

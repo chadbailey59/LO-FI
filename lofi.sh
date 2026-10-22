@@ -29,6 +29,12 @@ load_env_defaults() {
     if [[ "$line" =~ ^[[:space:]]*(#|$) ]]; then continue; fi
     key="${line%%=*}"; value="${line#*=}"
     if [[ ! "$key" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]]; then continue; fi
+    # Unquoted value: drop inline ` # comment` and trailing whitespace —
+    # python-dotenv does the same, so shell and bot read one value.
+    if [[ ! "$value" =~ ^[\"\'] ]]; then
+      value="${value%%[[:space:]]\#*}"
+      value="${value%"${value##*[![:space:]]}"}"
+    fi
     if [[ -z "${!key+x}" ]]; then export "$key=$value"; fi
   done < "$file"
 }

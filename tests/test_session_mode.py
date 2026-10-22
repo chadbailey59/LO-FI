@@ -121,3 +121,55 @@ def test_local_preflights_run_by_default(monkeypatch):
     monkeypatch.setattr(bot, "_preflight_rag", lambda: ran.append(("rag",)))
     bot._preflight_local()
     assert [entry[0] for entry in ran] == ["llm", "stt", "rag"]
+
+
+def test_offline_connect_missing_models_lists_all(monkeypatch):
+    monkeypatch.setenv("LOFI_ARCHITECTURE", "split")
+    monkeypatch.setenv("LOFI_LLM_MODEL", "front-model:8b")
+    monkeypatch.setenv("LOFI_RAG_LLM_MODEL", "analyst-model:27b")
+    monkeypatch.setenv("LOFI_RAG_FAST_LLM_MODEL", "analyst-model:27b")
+    monkeypatch.setattr(bot_browser, "_ollama_model_ids", lambda url: {"someone-else:1b"})
+    with pytest.raises(RuntimeError) as excinfo:
+        bot_browser.vet_offline_session()
+    message = str(excinfo.value)
+    assert "front-model:8b" in message
+    assert "analyst-model:27b" in message
+    assert "scripts/prefetch_models.py" in message
+    assert "scripts/run_ollama.sh" in message
+
+
+def test_offline_connect_with_every_model_pulled_is_allowed(monkeypatch):
+    monkeypatch.setenv("LOFI_ARCHITECTURE", "split")
+    monkeypatch.setenv("LOFI_LLM_MODEL", "front-model:8b")
+    monkeypatch.setenv("LOFI_RAG_LLM_MODEL", "analyst-model:27b")
+    monkeypatch.setenv("LOFI_RAG_FAST_LLM_MODEL", "analyst-model:27b")
+    monkeypatch.setattr(
+        bot_browser,
+        "_ollama_model_ids",
+        lambda url: {"front-model:latest", "analyst-model:27b"},
+    )
+    bot_browser.vet_offline_session()
+
+
+def test_offline_connect_ollama_down_names_fix(monkeypatch):
+    def refused(url):
+        raise OSError("Connection refused")
+
+    monkeypatch.setattr(bot_browser, "_ollama_model_ids", refused)
+    with pytest.raises(RuntimeError) as excinfo:
+        bot_browser.vet_offline_session()
+    message = str(excinfo.value)
+    assert "scripts/run_ollama.sh" in message
+    assert "Connection refused" in message
+
+
+def test_browser_startup_survives_missing_models(monkeypatch):
+    warnings = []
+
+    def boom():
+        raise SystemExit("✖ LLM model 'front-model:8b' is not available in Ollama")
+
+    monkeypatch.setattr(bot_browser, "_preflight_local", boom)
+    monkeypatch.setattr(bot_browser.logger, "warning", warnings.append)
+    bot_browser._preflight_startup()
+    assert warnings and "front-model:8b" in warnings[0]

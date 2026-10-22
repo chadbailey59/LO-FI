@@ -2,6 +2,7 @@ import json
 import sys
 
 import config
+import scripts.print_models as print_models
 from bot_browser import CONFIG_MESSAGE_TYPE, _lofi_config_message, build_transport_params
 
 
@@ -75,3 +76,21 @@ def test_online_model_entries_roles(monkeypatch):
         assert entry["path"] == "—"
         assert "cloud" in entry["model"]
     assert "fake-" not in dumped
+
+
+def test_model_entries_missing_flag(monkeypatch, tmp_path):
+    """A role whose weights resolve to nothing is flagged for the panel."""
+    monkeypatch.setenv("LOFI_ARCHITECTURE", "split")
+    weights = tmp_path / "weights.bin"
+    weights.write_text("x")
+    monkeypatch.setattr(print_models, "_ollama_file", lambda tag: None)
+    monkeypatch.setattr(print_models, "_stt_file", lambda: weights)
+    monkeypatch.setattr(print_models, "_tts_file", lambda: weights)
+    entries = {e["role"]: e for e in print_models.model_entries()}
+    assert entries["LLM"]["missing"] is True
+    assert entries["ANALYST"]["missing"] is True
+    assert entries["EMBED"]["missing"] is True
+    assert entries["STT"]["missing"] is False
+    assert entries["TTS"]["missing"] is False
+    # Cloud rows have no local weights to miss.
+    assert all(e["missing"] is False for e in print_models.model_entries("online"))

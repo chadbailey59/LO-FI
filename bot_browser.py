@@ -18,6 +18,9 @@ only transport construction and per-transport event-handler shapes live here.
 import config
 
 import asyncio
+import json
+import urllib.error
+import urllib.request
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -30,7 +33,7 @@ from pipecat.transports.base_transport import BaseTransport
 from pipecat.workers.runner import WorkerRunner
 
 import store
-from bot import _configure_logging, _preflight_local
+from bot import _configure_logging, _ollama_models_to_check, _preflight_local
 from moq_transport import moq_transport_params, register_moq_handlers
 from pipeline import ONLINE_MODE, build_pipeline, public_rag_summary
 from scripts.print_models import model_entries
@@ -131,6 +134,67 @@ def session_mode(runner_args) -> str:
             )
     logger.info(f"session mode: {mode}")
     return mode
+
+
+PREFETCH_CMD = "uv run python scripts/prefetch_models.py"
+RUN_OLLAMA_CMD = "bash scripts/run_ollama.sh"
+
+
+def _ollama_model_ids(base_url: str) -> set[str]:
+    """Tags the Ollama server at `base_url` serves right now."""
+    url = base_url.rstrip("/") + "/models"
+    with urllib.request.urlopen(url, timeout=5) as resp:  # noqa: S310 (localhost)
+        return {str(m.get("id", "")) for m in json.load(resp).get("data", [])}
+
+
+def vet_offline_session() -> None:
+    """Refuse an offline connect the local stack can't serve, naming the fix.
+
+    Mirrors online's missing-keys refusal: the browser shows the error instead
+    of a bot that connects, listens, and never answers. Every missing model is
+    named in one message so a user pulls them in one pass.
+    """
+    base_url = config.ollama_base_url()
+    wanted = _ollama_models_to_check()
+    if not wanted:
+        return
+    try:
+        available = _ollama_model_ids(base_url)
+    except (urllib.error.URLError, OSError) as exc:
+        raise RuntimeError(
+            f"offline session needs the local LLM server — nothing answers at {base_url}. "
+            f"Start it:  {RUN_OLLAMA_CMD}  (or: ollama serve), then reconnect. "
+            f"Or pick ☁️ online on the page. Details: {exc}"
+        ) from exc
+
+    # Ollama reports tags like 'llama3:latest'; match the bare name too.
+    missing = [
+        tag
+        for tag in wanted
+        if not any(tag == m or tag.split(":")[0] == m.split(":")[0] for m in available)
+    ]
+    if missing:
+        raise RuntimeError(
+            "offline session needs local models Ollama doesn't have: "
+            f"{', '.join(missing)}. Pull them:  {PREFETCH_CMD}  — or, if you pulled "
+            f"them into a different Ollama, point lofi at it:  {RUN_OLLAMA_CMD}. "
+            "Or pick ☁️ online on the page."
+        )
+    logger.info(f"offline session OK: {', '.join(wanted)} available at {base_url}")
+
+
+def _preflight_startup() -> None:
+    """Run the local-stack preflights, logging a failure instead of exiting.
+
+    The server must boot even with no brain: the page is where a user reads
+    what is missing, and online sessions need no local model at all.
+    """
+    try:
+        _preflight_local()
+    except SystemExit as exc:
+        logger.warning(
+            f"local stack not ready — offline sessions will be refused at connect:{exc}"
+        )
 
 
 def _lofi_config_message(mode: str = OFFLINE_MODE) -> dict:
@@ -284,13 +348,15 @@ async def bot(runner_args: RunnerArguments) -> None:
     # Resolve (and vet) the mode before any transport exists, so a refused
     # session never leaves a half-open peer connection behind.
     mode = session_mode(runner_args)
+    if mode == OFFLINE_MODE:
+        vet_offline_session()
     transport = await create_transport(runner_args, transport_params)
     await run_bot(transport, runner_args, mode=mode)
 
 
 if __name__ == "__main__":
     _configure_logging()
-    _preflight_local()
+    _preflight_startup()
 
     from pipecat.runner.run import app, main
 

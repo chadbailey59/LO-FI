@@ -203,6 +203,11 @@ def _path_line(found: Path | None) -> str:
     return f"  → {found}   {OUTSIDE_FLAG}"
 
 
+def _missing(found: Path | None) -> bool:
+    """No weights on disk for this role — the panel paints the line red."""
+    return found is None or not found.exists()
+
+
 def _is_relative_to(path: Path, root: Path) -> bool:
     try:
         path.relative_to(root)
@@ -363,21 +368,33 @@ def _tts_line() -> str:
     return f"unknown engine '{engine}'"
 
 
-def _llm_entry() -> dict:
+def _entry(role: str, model: str, found: Path | None) -> dict:
     return {
-        "role": "LLM",
-        "model": f"{config.llm_model()} (Ollama @ {config.ollama_base_url()})",
-        "path": _path_line(_ollama_file(config.llm_model())),
+        "role": role,
+        "model": model,
+        "path": _path_line(found),
+        "missing": _missing(found),
     }
+
+
+def _llm_entry() -> dict:
+    return _entry(
+        "LLM",
+        f"{config.llm_model()} (Ollama @ {config.ollama_base_url()})",
+        _ollama_file(config.llm_model()),
+    )
 
 
 def online_model_entries() -> list[dict]:
     """Online session's four rows — cloud model names only, no local paths."""
     return [
-        {"role": "STT", "model": f"{config.online_stt_model()} (Deepgram cloud)", "path": "—"},
-        {"role": "LLM", "model": f"{config.online_llm_model()} (OpenAI cloud)", "path": "—"},
-        {"role": "TTS", "model": f"{config.online_tts_voice()} (Cartesia cloud)", "path": "—"},
-        {"role": "EMBED", "model": f"{config.online_embed_model()} (OpenAI cloud)", "path": "—"},
+        {"role": role, "model": model, "path": "—", "missing": False}
+        for role, model in (
+            ("STT", f"{config.online_stt_model()} (Deepgram cloud)"),
+            ("LLM", f"{config.online_llm_model()} (OpenAI cloud)"),
+            ("TTS", f"{config.online_tts_voice()} (Cartesia cloud)"),
+            ("EMBED", f"{config.online_embed_model()} (OpenAI cloud)"),
+        )
     ]
 
 
@@ -387,26 +404,26 @@ def model_entries(mode: str = "offline") -> list[dict]:
         return online_model_entries()
     ollama = f"(Ollama @ {config.ollama_base_url()})"
     entries = [
-        {"role": "STT", "model": _stt_line(), "path": _path_line(_stt_file())},
+        _entry("STT", _stt_line(), _stt_file()),
         _llm_entry(),
     ]
     # Split runs the records analyst as its own (always local) model.
     if config.architecture() == "split":
         entries.append(
-            {
-                "role": "ANALYST",
-                "model": f"{config.rag_llm_model()} {ollama}",
-                "path": _path_line(_ollama_file(config.rag_llm_model())),
-            }
+            _entry(
+                "ANALYST",
+                f"{config.rag_llm_model()} {ollama}",
+                _ollama_file(config.rag_llm_model()),
+            )
         )
     entries.extend(
         [
-            {"role": "TTS", "model": _tts_line(), "path": _path_line(_tts_file())},
-            {
-                "role": "EMBED",
-                "model": f"{config.embed_model()} {ollama}",
-                "path": _path_line(_ollama_file(config.embed_model())),
-            },
+            _entry("TTS", _tts_line(), _tts_file()),
+            _entry(
+                "EMBED",
+                f"{config.embed_model()} {ollama}",
+                _ollama_file(config.embed_model()),
+            ),
         ]
     )
     return entries

@@ -340,3 +340,14 @@ def test_command_line_env_beats_env_file(tmp_path):
     )
     assert result.returncode == 0
     assert re.search(r"^\s+LLM\s+from-cli:1b", result.stdout, re.M), result.stdout
+
+
+def test_env_file_inline_comments_stripped(tmp_path):
+    """Unquoted inline ` # comment` is not part of the value — matches
+    python-dotenv, so shell and bot resolve the same model tag."""
+    rc = tmp_path / "lofirc"
+    rc.write_text("LOFI_RAG_LLM_MODEL=qwen3.8:27b   # records analyst backend\n")
+    result = run_lofi("status", tmp_path, f"127.0.0.1:{closed_port()}", LOFI_ENV_FILE=str(rc))
+    assert result.returncode == 0
+    assert re.search(r"^\s+ANALYST\s+qwen3\.8:27b \(", result.stdout, re.M), result.stdout
+    assert "# records analyst backend" not in result.stdout

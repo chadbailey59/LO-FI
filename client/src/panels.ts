@@ -11,7 +11,12 @@ interface ModelEntry {
   role: string;
   model: string;
   path: string;
+  missing?: boolean;
 }
+
+// Server flags a role whose weights resolve to nothing; the path line says
+// how to get them instead of printing a path that isn't there.
+const PREFETCH_CMD = "uv run python scripts/prefetch_models.py";
 
 interface LofiConfig {
   type: string;
@@ -148,7 +153,13 @@ export function attachConfigPanel(client: PipecatClient, panel: HTMLElement): vo
       const name = detailAt === -1 ? entry.model : entry.model.slice(0, detailAt);
       const detail = detailAt === -1 ? "" : entry.model.slice(detailAt);
       append(`${entry.role.padEnd(8)}${name}`, ROLE_CLASSES[entry.role]);
-      append(`${detail}\n       ${entry.path}\n`);
+      if (entry.missing) {
+        append(`${detail}\n       `);
+        append(`not downloaded — run: ${PREFETCH_CMD}`, "cfg-missing");
+        append("\n");
+      } else {
+        append(`${detail}\n       ${entry.path}\n`);
+      }
     }
     append(
       [
