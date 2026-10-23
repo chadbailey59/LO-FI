@@ -460,76 +460,14 @@ over the file, both unset means both modes are available, and when both vars
 are set offline-only wins. The page greys out the mode the process refuses
 and pre-selects the one it serves.
 
-
----
----
----
 ---
 
-## What's inside
+## Configuration
 
-| Component | Service | Notes |
-|---|---|---|
-| Speech-to-text | `WhisperSTTServiceMLX` *(default)* | Apple-Silicon-optimized Whisper via MLX. Alternatives via `LOFI_STT_ENGINE`: `faster_whisper` (CPU), `moonshine` (tiny CPU ONNX) |
-| Language model | `qwen2.5:7b` front + `qwen3:8b` records analyst *(defaults)* via **Ollama** | Local, OpenAI-compatible endpoint; env-configurable. The llmwithbackend analyst (`LOFI_RAG_LLM_MODEL`) answers from your records. |
-| Text-to-speech | `KokoroTTSService` *(default)* | Natural local neural voice (kokoro-onnx). Alternative via `LOFI_TTS_ENGINE`: `piper` |
-| Turn-taking | Silero VAD | Barge-in / interruptions, fully local (bundled with Pipecat) |
-| Transport | `FastAPIWebsocketTransport` offline / `SmallWebRTCTransport` online *(per session mode)* | free echo cancellation via `getUserMedia`; websocket is pure TCP so offline works airgapped, webrtc auto-falls back to it |
-| Alternative transport | `LocalAudioTransport` | PyAudio mic + speaker I/O (requires headphones) — see [echo cancellation](#how-do-you-solve-a-problem-like-echo-cancellation) |
-| Online session *(opt-in)* | `DeepgramSTTService` + `OpenAILLMService` + `CartesiaTTSService` | Picked per session in the browser; retrieves from the public index only — see [Online sessions](#online-sessions-the-other-half-of-the-toggle) |
+Offline configuration lives in `.lofirc`.
+Online-session API keys live in `.env`.
 
----
-
-## No secrets, no keys
-
-In the default, 100% local configuration there are **no API keys** anywhere in
-this project, and nowhere to put one:
-
-- **Ollama** pulls the LLM from its own public registry and serves it locally.
-- **Whisper-MLX and Kokoro** download anonymously from Hugging Face (none are
-  gated); **Silero VAD** ships bundled with Pipecat.
-- **Daily's browser bundles** (the client's mic/device plumbing) are vendored
-  by the same prefetch and served same-origin.
-
-`.lofirc` is **config only** — model names, a voice, device indices, cache
-paths. It is gitignored, but nothing secret ever belongs in it. The single
-network event in an offline session's entire lifecycle is the one-time,
-anonymous model download in Setup step 2.
-
-After the prefetch, an airgapped websocket or WebRTC session makes **zero**
-external requests. One dead branch survives in the built client and blocks
-nothing: daily-js ships a vendored Sentry client (`o77906.ingest.sentry.io`)
-for its own error telemetry, which fails silently offline.
-
-The one exception is the **online session mode**, which is opt-in per session
-and needs three keys. Those live in `.env` — three names, nothing else — and
-an offline session never reads them. See
-[Online sessions](#online-sessions-the-other-half-of-the-toggle) and
-[Configuration files](#configuration-files-lofirc-and-env).
-
----
-
-### Two-way language practice
-
-```bash
-LOFI_PRACTICE_LANGUAGE=Spanish ./lofi.sh start
-```
-
-Online only: Deepgram's `nova-3` with `language=multi` code-switches and
-Cartesia's voice speaks the language, so the session answers you in Spanish
-when you speak Spanish. Offline sessions ignore the knob — local STT is
-English-configured.
-
-### What it costs
-
-`gpt-4o-mini`, `nova-3` and one Cartesia voice are the cheap tier of each
-service, and the public index is two PDFs — a workshop's worth of demoing is
-cents, not dollars. Keys are read from `.env` only: they are never logged,
-never sent to the browser, and never appear in the What's Running panel.
-
----
-
-## Two architectures, one env var
+### Two architectures; `Cascade` & `LLMWithBackend`
 
 `LOFI_ARCHITECTURE` picks how retrieval and conversation share the work —
 set it in `.lofirc`, or per start with the `./lofi.sh start --cascade` /
@@ -550,52 +488,43 @@ set it in `.lofirc`, or per start with the `./lofi.sh start --cascade` /
   your records." covering the lookup. The simplest architecture to read and
   the stable fallback for small machines.
 
-Reasoning models (deepseek-r1, qwen3 with thinking) are not supported as the
-**front/cascade** model — nothing strips thinking tokens before the voice.
-The analyst backend is exactly where a reasoning model belongs: its thinking
-stays in the native API's `reasoning` field and never reaches TTS. The
-backend also needs a model that emits real API tool calls —
-`nemotron-3-nano:4b` narrates them as JSON text and fails as the analyst
-backend.
+#### Where a setting comes from
 
----
+For any `LOFI_*` knob, first hit wins:
 
+1. **The shell environment** — `LOFI_ARCHITECTURE=cascade ./lofi.sh start`.
+   Beats both files, always. The start flags (`--online-only`,
+   `--offline-only`, `--cascade`, `--llmwithbackend`) export into this slot,
+   so they win too.
+2. **`.lofirc`** — your persistent settings. Loaded as defaults, so it never
+   overrides the line above.
+3. **`.env`** — loaded next, same no-override rule, so `.lofirc` wins for a
+   name in both. Keys and online-session config live here; anything else is
+   flagged at startup with a pointer to `.lofirc`.
+4. **`tunables.py`** — the default baked into the code, and the end of the
+   ladder for models and voices.
 
+**Prompts are not on this ladder.** They have no env var at all: every system
+prompt, tool description and canned line lives in
+[`tunables.py`](tunables.py), and editing that file IS the mechanism. Landmine
+comments mark measured, byte-sensitive text.
 
----
+An offline `LOFI_*` setting found in `.env` still applies, and startup prints
+one line per stray name asking you to move it to `.lofirc` (online-session
+names belong in `.env` and are not flagged). The same startup check
+names any unprefixed settings (`STT_ENGINE`, `LLM_MODEL`, …) — the only
+unprefixed names the repo reads are the four external ones below.
 
-## One place for all models: consolidate
+**`LOFI_` means it's ours.** Anything read by this repo carries the prefix, so
+you can tell at a glance what's safe to change and what belongs to someone
+else. Exactly four variables are **external** — read by third-party software,
+keeping their upstream names because renaming them would break the tool that
+reads them:
 
-HuggingFace defaults to `~/.cache/huggingface`, Ollama to `~/.ollama/models` —
-models you pulled outside lofi live there, and lofi uses them from there
-automatically: the bot loads weights straight from whichever cache has them,
-and `./lofi.sh status` prints the real path (its `downloaded` section
-inventories every model on disk, with sizes). `./lofi.sh consolidate` is an
-optional convenience on top — it adopts external models into `LOFI_MODEL_DIR`
-with symlinks so one `ls -al ./models` browses every model with its real path
-(and shows what a zip-and-go copy of the repo would actually include):
-
-```bash
-./lofi.sh consolidate -n   # dry run: print what would be adopted
-./lofi.sh consolidate      # create the links
-```
-
-- **HuggingFace, per model:** each model in your home cache that the lofi
-  store lacks becomes a symlink inside `models/huggingface/hub/`, loadable
-  through `LOFI_MODEL_DIR` like any owned model. A broken partial download in
-  the lofi store is replaced by a link to a complete external copy.
-- **Ollama, whole store:** models share content-addressed blobs, so adoption
-  links `models/ollama -> ~/.ollama/models` when the lofi store is empty. If
-  both stores contain models, consolidate reports the conflict and touches
-  nothing (skipped while an ollama server is running).
-
-Nothing outside the repo is ever moved, modified, or deleted; the only writes
-are symlinks (plus removal of lofi-owned 0-byte `.incomplete` stubs).
-`./lofi.sh status` labels adopted models `(borrowed → /real/path)`. Borrowed
-means borrowed: a re-download of that model follows the symlink into your
-home cache, and zipping up the repo excludes borrowed weights — delete the
-link and `ollama pull` / `uv run python scripts/prefetch_models.py` to own a
-copy instead.
+| External variable | Read by |
+|---|---|
+| `HF_HOME`, `HF_HUB_DISABLE_PROGRESS_BARS` | `huggingface_hub` |
+| `OLLAMA_MODELS`, `OLLAMA_HOST` | the `ollama` binary |
 
 ---
 
@@ -737,83 +666,9 @@ Then click **Connect**, allow the mic, talk.
   (e.g. `vi /mnt/c/Users/<you>/.wslconfig`) — handy, but keep the repo itself
   in `~/`.
 
-### Intel Macs
+## Intel Macs
 
 Use [`intel-mac` branch](../../tree/intel-mac).
-
----
-
-## Configuration
-
-Every knob is an environment variable (read from `.lofirc` if present;
-online-session API keys live in `.env`). All are optional — the shown value is
-the default. See [`lofirc.example`](lofirc.example) for the copy-paste
-template.
-
-### Configuration files: `.lofirc` and `.env`
-
-Two files, one job each, both gitignored:
-
-| File | Holds | Template |
-|---|---|---|
-| `.lofirc` | the offline/local settings — model tags, voices, engines, paths, VAD, ports | [`lofirc.example`](lofirc.example) |
-| `.env` | the online session: the three keys (`OPENAI_API_KEY`, `DEEPGRAM_API_KEY`, `CARTESIA_API_KEY`) plus any `LOFI_ONLINE_*` / `LOFI_PUBLIC_RAG_*` / `LOFI_PRACTICE_LANGUAGE` overrides | [`env.example`](env.example) |
-
-```bash
-cp lofirc.example .lofirc     # settings — optional, the bot runs without it
-cp env.example .env           # keys + online config — only if you want online sessions
-```
-
-`LOFI_ENV_FILE` repoints the settings file (`config.py`, `lofi.sh` and
-`configure.sh` all honor it); the online file is always `.env` at the repo root.
-
-#### Where a setting comes from
-
-For any `LOFI_*` knob, first hit wins:
-
-1. **The shell environment** — `LOFI_ARCHITECTURE=cascade ./lofi.sh start`.
-   Beats both files, always. The start flags (`--online-only`,
-   `--offline-only`, `--cascade`, `--llmwithbackend`) export into this slot,
-   so they win too.
-2. **`.lofirc`** — your persistent settings. Loaded as defaults, so it never
-   overrides the line above.
-3. **`.env`** — loaded next, same no-override rule, so `.lofirc` wins for a
-   name in both. Keys and online-session config live here; anything else is
-   flagged at startup with a pointer to `.lofirc`.
-4. **`tunables.py`** — the default baked into the code, and the end of the
-   ladder for models and voices.
-
-**Prompts are not on this ladder.** They have no env var at all: every system
-prompt, tool description and canned line lives in
-[`tunables.py`](tunables.py), and editing that file IS the mechanism. Landmine
-comments mark measured, byte-sensitive text.
-
-An offline `LOFI_*` setting found in `.env` still applies, and startup prints
-one line per stray name asking you to move it to `.lofirc` (online-session
-names belong in `.env` and are not flagged). The same startup check
-names any unprefixed settings (`STT_ENGINE`, `LLM_MODEL`, …) — the only
-unprefixed names the repo reads are the four external ones below.
-
-**`LOFI_` means it's ours.** Anything read by this repo carries the prefix, so
-you can tell at a glance what's safe to change and what belongs to someone
-else. Exactly four variables are **external** — read by third-party software,
-keeping their upstream names because renaming them would break the tool that
-reads them:
-
-| External variable | Read by |
-|---|---|
-| `HF_HOME`, `HF_HUB_DISABLE_PROGRESS_BARS` | `huggingface_hub` |
-| `OLLAMA_MODELS`, `OLLAMA_HOST` | the `ollama` binary |
-
-If you already export one of those globally, it affects lofi too. Note that
-`LOFI_OLLAMA_BASE_URL` is *ours* despite the name — it's the URL the bot
-dials, not something ollama reads.
-
-
----
----
----
----
 
 ## Repository layout
 
