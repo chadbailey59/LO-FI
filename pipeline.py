@@ -424,7 +424,7 @@ def build_online_pipeline(transport: BaseTransport) -> BuiltBot:
             messages=[{"role": "system", "content": online_front_prompt()}]
         )
     else:
-        prompt = online_system_prompt(language=config.practice_language())
+        prompt = online_system_prompt()
         context = (
             LLMContext(messages=[{"role": "system", "content": prompt}], tools=public_tools)
             if public_tools

@@ -16,7 +16,7 @@ That version is an ideal language learning partner. Read on to learn more.
 ## Requirements
 
 - **~15 GB free disk** for the models; **16 GB+ RAM** for the default model
-  pair (smaller tiers exist — see [Choosing models](#choosing-models-for-your-hardware)).
+  pair (smaller tiers exist — see [Choosing models](#a-choosing-models-for-your-hardware)).
 - **Python 3.12** (pinned; 3.14 is too new for the ML wheels).
 - **[uv](https://docs.astral.sh/uv/)** — Python package manager.
 - **[Ollama](https://ollama.com/)** — serves the local LLM.
@@ -110,7 +110,7 @@ Approximate total download of default models:
 
 Not sure what your machine can handle? `./lofi.sh configure` prints recommended
 STT/LLM/TTS combos sized to your hardware — see
-[Choosing models](#choosing-models-for-your-hardware).
+[Choosing models](#a-choosing-models-for-your-hardware).
 
 ### 3. Run
 
@@ -283,7 +283,7 @@ uv sync --extra local-audio       # the extra adds PyAudio (needs PortAudio)
 > want: `uv sync --extra local-audio --extra piper`. (`./configure.sh -i`
 > preserves whatever is already installed.)
 
-### C. See [above](#3.-run)
+### C. See [above](#3-run)
 
 ### D. Retrieval (your transactions and documents)
 
@@ -617,7 +617,7 @@ whole pipeline, but a 1B model fumbles records questions (measured: as a
 front model it invents numbers on ~1 in 3 data questions, which is why the
 small-machine recipe uses `cascade`, not the `llmwithbackend` default). Real
 records-accuracy wants the 16 GB tier — the
-[RAM budget](#choosing-models-for-your-hardware) shows what each step up buys.
+[RAM budget](#a-choosing-models-for-your-hardware) shows what each step up buys.
 
 #### 4. Run
 

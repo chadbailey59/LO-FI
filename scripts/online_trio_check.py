@@ -77,7 +77,7 @@ def main() -> int:
 
     client = OpenAI()
     model = config.online_llm_model()
-    system = tunables.online_system_prompt(config.practice_language() or None)
+    system = tunables.online_system_prompt()
     tool_specs = _openai_tools()
     print(f"online_trio_check: {model}, {len(tool_specs)} tool(s), prompt {len(system)} chars")
 

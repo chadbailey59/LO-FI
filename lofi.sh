@@ -49,7 +49,7 @@ load_env_defaults ".env"
 # where they belong.
 MISPLACED_SETTINGS=""
 if [[ -f .env ]]; then
-  MISPLACED_SETTINGS="$(grep -oE '^[[:space:]]*LOFI_[A-Za-z0-9_]+' .env 2>/dev/null | tr -d ' ' | grep -vE '^LOFI_(ONLINE_|PUBLIC_RAG_|PRACTICE_LANGUAGE$)' | paste -sd, - || true)"
+  MISPLACED_SETTINGS="$(grep -oE '^[[:space:]]*LOFI_[A-Za-z0-9_]+' .env 2>/dev/null | tr -d ' ' | grep -vE '^LOFI_(ONLINE_|PUBLIC_RAG_)' | paste -sd, - || true)"
 fi
 LOFI_REPO_ROOT="$REPO"
 # shellcheck source=scripts/model_dir.sh
@@ -207,6 +207,13 @@ cmd_start() {
     elif ! model_ready; then
       echo "start: Ollama already running — pulling $(missing_models) into it..."
       ./scripts/run_ollama.sh
+    fi
+    # A booting server and a missing model fail the same tags check — wait
+    # out the boot first so the pull message only prints for a real pull.
+    if ! ollama_up; then
+      echo "start: waiting for Ollama to come up..."
+      for _ in $(seq 1 120); do ollama_up && break; sleep 1; done
+      ollama_up || { echo "start: Ollama did not come up — see ollama.log" >&2; exit 1; }
     fi
     if ! model_ready; then
       echo "start: waiting for $(missing_models) (first pull can take a few minutes)..."

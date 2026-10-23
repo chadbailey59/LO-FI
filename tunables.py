@@ -243,14 +243,10 @@ def system_prompt(
         grounding += " " + GROUNDING_CATEGORIES.format(categories=", ".join(categories))
     return f"{LOFI_OFFLINE_CASCADE_PROMPT}\n\n{grounding}"
 
-def online_system_prompt(
-    language: str | None = None,
-    today: datetime.date | None = None,
-) -> str:
+def online_system_prompt(today: datetime.date | None = None) -> str:
     """Online-session prompt with date grounding appended as a suffix."""
-    prompt = LOFI_ONLINE_CASCADE_PROMPT
     today = today or datetime.date.today()
-    return f"{prompt}\n\n{GROUNDING_TODAY.format(today=today.isoformat())}"
+    return f"{LOFI_ONLINE_CASCADE_PROMPT}\n\n{GROUNDING_TODAY.format(today=today.isoformat())}"
 
 # ===========================================================================
 # 6. ONLINE LLMWITHBACKEND — edit freely (frontier models, stock pairing)

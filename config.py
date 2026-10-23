@@ -170,25 +170,21 @@ def _dotenv_keys(path: Path) -> list[str]:
 
 
 ONLINE_ENV_PREFIXES = ("LOFI_ONLINE_", "LOFI_PUBLIC_RAG_")
-ONLINE_ENV_NAMES = ("LOFI_PRACTICE_LANGUAGE",)
 
 
 def legacy_settings_in_env(root: Path | None = None) -> list[str]:
     """Offline ``LOFI_*`` settings sitting in ``.env``.
 
     ``.env`` holds the online-session config: the three keys plus
-    ``LOFI_ONLINE_*`` / ``LOFI_PUBLIC_RAG_*`` / ``LOFI_PRACTICE_LANGUAGE``.
-    Everything else belongs in ``.lofirc``; both files are dotenv loads, so
-    the values still apply — the names are reported so one startup line can
-    point them at ``.lofirc``.
+    ``LOFI_ONLINE_*`` / ``LOFI_PUBLIC_RAG_*``. Everything else belongs in
+    ``.lofirc``; both files are dotenv loads, so the values still apply — the
+    names are reported so one startup line can point them at ``.lofirc``.
     """
     root = Path(root) if root is not None else REPO_ROOT
     return [
         k
         for k in _dotenv_keys(root / KEYS_FILE_NAME)
-        if k.startswith("LOFI_")
-        and not k.startswith(ONLINE_ENV_PREFIXES)
-        and k not in ONLINE_ENV_NAMES
+        if k.startswith("LOFI_") and not k.startswith(ONLINE_ENV_PREFIXES)
     ]
 
 
@@ -533,16 +529,6 @@ def rag_index_dir() -> str:
 def rag_llm_model() -> str:
     """LLM with backend needs a model that emits real API tool calls."""
     return _get("LOFI_RAG_LLM_MODEL", "qwen3:8b")
-
-
-def practice_language() -> str:
-    """Language for online two-way practice (LOFI_PRACTICE_LANGUAGE, default
-    empty = off).
-
-    Set to a language name — e.g. Spanish — and an online session answers in
-    that language whenever the user speaks it.
-    """
-    return _get("LOFI_PRACTICE_LANGUAGE", "").strip()
 
 
 def architecture() -> str:
