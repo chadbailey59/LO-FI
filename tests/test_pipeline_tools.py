@@ -468,6 +468,30 @@ def test_spoken_final_answer_gets_no_nudge():
     assert _nudges(frontend) == []
 
 
+def test_spoken_final_answer_goes_straight_to_tts():
+    # The analyst's spoken answer skips the front relay (measured 2026-10-22:
+    # 4.6s answer-to-speech): TTSSpeakFrame to TTS, note appended with
+    # run_llm=False so follow-ups still read a complete transcript.
+    from pipecat.frames.frames import LLMMessagesAppendFrame, TTSSpeakFrame
+    from pipecat.workers.llm.backend_llm_worker import BackendIdle, BackendOutput
+
+    connector = pipeline.build_records_connector()
+    frontend = RecordingTTSService()
+    _deliver_all(
+        connector,
+        frontend,
+        [BackendOutput(text="You visited three times.", prefers_spoken=True), BackendIdle()],
+    )
+
+    speaks = [f for f in frontend.queued if isinstance(f, TTSSpeakFrame)]
+    assert [f.text for f in speaks] == ["You visited three times."]
+    assert speaks[0].append_to_context is False
+    appends = [f for f in frontend.queued if isinstance(f, LLMMessagesAppendFrame)]
+    assert len(appends) == 1
+    assert appends[0].messages and appends[0].run_llm is False
+    assert "You visited three times." in appends[0].messages[0]["content"]
+
+
 def test_backend_error_gets_no_nudge():
     # The error path already appends its own run_llm=True message.
     from pipecat.workers.llm.backend_llm_worker import BackendError, BackendIdle
@@ -669,14 +693,23 @@ def test_split_pipeline_warms_the_analyst(db, monkeypatch):
         monkeypatch.setattr(pipeline, name, lambda: FrameProcessor())
     monkeypatch.setenv("LOFI_ARCHITECTURE", "llmwithbackend")
     monkeypatch.setenv("LOFI_RAG_DB", str(db))
-    calls: list[int] = []
-    monkeypatch.setattr(services, "warm_analyst", lambda: calls.append(1))
+    calls: list = []
+    monkeypatch.setattr(
+        services, "warm_analyst", lambda system_messages=None: calls.append(system_messages)
+    )
 
     async def build():
         pipeline.build_pipeline(fake_transport())
 
     asyncio.run(build())
-    assert calls == [1]
+    # Warmup prefills the exact live composition: pairing instruction first,
+    # then the analyst system message.
+    assert len(calls) == 1
+    import tunables
+
+    pairing, system = calls[0]
+    assert pairing["content"] == tunables.LOFI_BACKEND_PAIRING_INSTRUCTION
+    assert system["content"].startswith(tunables.ANALYST_SYSTEM_PROMPT)
 
 
 def test_cascade_pipeline_does_not_warm_the_analyst(db, monkeypatch, stub_services):

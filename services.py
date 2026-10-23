@@ -224,8 +224,12 @@ WARMUP_TIMEOUT_SECS = 120.0
 _warmups: set[asyncio.Task] = set()
 
 
-async def warm_analyst_model(client=None) -> None:
-    """Load the analyst's weights into Ollama. Empty prompt = load, no tokens.
+async def warm_analyst_model(system_messages=None, client=None) -> None:
+    """Load the analyst's weights into Ollama — and, given its system
+    messages, prefill them so the KV prefix cache is warm before the first
+    delegation (measured 2026-10-22: 25s first-delegation TTFB = prefill of
+    the composed system prompt). Without messages: empty /api/generate =
+    load, no tokens.
 
     Errors are swallowed: a warmup that fails costs the cold load back, and
     bot._preflight_llm already reports an unreachable Ollama or missing model.
@@ -235,11 +239,23 @@ async def warm_analyst_model(client=None) -> None:
     http = client or httpx.AsyncClient(timeout=WARMUP_TIMEOUT_SECS)
     model = config.rag_llm_model()
     try:
-        await http.post(
-            f"{config.ollama_api_url()}/api/generate",
-            json={"model": model, "prompt": "", "stream": False},
-        )
-        logger.info(f"Analyst warmup done: {model} loaded")
+        if system_messages:
+            await http.post(
+                f"{config.ollama_base_url()}/chat/completions",
+                json={
+                    "model": model,
+                    "messages": system_messages,
+                    "max_tokens": 1,
+                    "stream": False,
+                },
+            )
+            logger.info(f"Analyst warmup done: {model} loaded, system prompt prefilled")
+        else:
+            await http.post(
+                f"{config.ollama_api_url()}/api/generate",
+                json={"model": model, "prompt": "", "stream": False},
+            )
+            logger.info(f"Analyst warmup done: {model} loaded")
     except Exception as exc:  # noqa: BLE001 (warmup is best-effort)
         logger.debug(f"Analyst warmup skipped ({model}): {exc}")
     finally:
@@ -247,7 +263,7 @@ async def warm_analyst_model(client=None) -> None:
             await http.aclose()
 
 
-def warm_analyst() -> None:
+def warm_analyst(system_messages=None) -> None:
     """Fire the analyst warmup in the background; never blocks startup.
 
     No-op without a running loop (pipeline built outside asyncio, e.g. tests).
@@ -256,7 +272,7 @@ def warm_analyst() -> None:
         loop = asyncio.get_running_loop()
     except RuntimeError:
         return
-    task = loop.create_task(warm_analyst_model())
+    task = loop.create_task(warm_analyst_model(system_messages=system_messages))
     # Hold a reference — a bare task can be garbage-collected mid-flight.
     _warmups.add(task)
     task.add_done_callback(_warmups.discard)

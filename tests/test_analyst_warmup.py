@@ -43,6 +43,46 @@ def test_warmup_posts_load_only_generate(monkeypatch):
     assert client.closed is False
 
 
+def test_warmup_with_system_messages_prefills_via_v1_chat(monkeypatch):
+    monkeypatch.setenv("LOFI_RAG_LLM_MODEL", "qwen3.8:27b")
+    client = FakeAsyncClient()
+    messages = [
+        {"role": "system", "content": "pairing instruction"},
+        {"role": "system", "content": "analyst prompt + grounding"},
+    ]
+    asyncio.run(services.warm_analyst_model(system_messages=messages, client=client))
+    assert len(client.posts) == 1
+    url, body = client.posts[0]
+    # /v1 chat renders the same template as the live requests, so the KV
+    # prefix cache is warm for the first delegation.
+    assert url == f"{config.ollama_base_url()}/chat/completions"
+    assert body["model"] == "qwen3.8:27b"
+    assert body["messages"] == messages
+    assert body["max_tokens"] == 1
+
+
+def test_warmup_messages_match_the_live_backend_composition(tmp_path, monkeypatch):
+    # The prefill is only worth its tokens if it is byte-identical to what
+    # build_records_backend installs plus the worker's pairing instruction.
+    import shutil
+    from pathlib import Path
+
+    import ingest
+    import pipeline
+    import tunables
+
+    fixtures = Path(__file__).parent / "fixtures"
+    data_dir = tmp_path / "data"
+    data_dir.mkdir()
+    shutil.copy(fixtures / "transactions-small.csv", data_dir / "transactions.csv")
+    db_path = tmp_path / "lofi.db"
+    ingest.ingest(data_dir, db_path, ingest.FakeEmbedder())
+
+    backend = pipeline.build_records_backend(db_path)
+    assert backend.context.messages[0]["content"] == pipeline.analyst_system_prompt(db_path)
+    assert backend.llm._composed_system_instruction == tunables.LOFI_BACKEND_PAIRING_INSTRUCTION
+
+
 def test_warmup_swallows_http_errors():
     client = FakeAsyncClient(raises=httpx.ConnectError("ollama down"))
     asyncio.run(services.warm_analyst_model(client=client))
@@ -52,7 +92,7 @@ def test_warmup_swallows_http_errors():
 def test_warm_analyst_runs_in_background_and_does_not_block(monkeypatch):
     ran = asyncio.Event()
 
-    async def fake_warm(client=None):
+    async def fake_warm(system_messages=None, client=None):
         ran.set()
 
     monkeypatch.setattr(services, "warm_analyst_model", fake_warm)

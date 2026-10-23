@@ -220,6 +220,25 @@ def build_records_connector():
         # after the answer arrived, speaking "I'm still working on it."
         # ahead of the answer).
         async def deliver(self, frontend, event):
+            # Analyst's spoken answer goes straight to TTS: the stock path
+            # re-runs the front to re-verbalize it (measured 2026-10-22:
+            # 4.6s answer-to-speech) and rewords away the source file. The
+            # note still lands in context with run_llm=False, so follow-up
+            # delegation reads a complete transcript and no front run can
+            # fabricate. The worker's transform_output already stripped
+            # <think> blocks and markdown from event.text.
+            if isinstance(event, BackendOutput) and event.prefers_spoken and not event.is_thought:
+                logger.debug(f"Backend spoken answer straight to TTS: {event.text!r}")
+                message = self.render_output(event)
+                if message is not None:
+                    await self._append(
+                        frontend, LLMMessagesAppendFrame(messages=[message], run_llm=False)
+                    )
+                await frontend.queue_frame(TTSSpeakFrame(event.text, append_to_context=False))
+                await self._signal_relay(frontend)
+                self._lull_appended = True
+                self._lull_ran_front = True
+                return
             await super().deliver(frontend, event)
             if isinstance(event, BackendOutput):
                 if self.render_output(event) is not None:
@@ -266,6 +285,18 @@ def strip_markdown(text: str) -> str:
     return _MARKDOWN_EMPHASIS.sub(lambda m: m.group(1) or m.group(2), text)
 
 
+def analyst_system_prompt(db_path) -> str:
+    """Analyst system message: ANALYST_SYSTEM_PROMPT + per-session grounding.
+
+    grounded_question keeps grounding out of the system prompt for per-call
+    paths; the backend context is built once per session, so folding grounding
+    into the system message is equally cache-stable. The warmup prefills this
+    same byte string, so it must match what build_records_backend installs.
+    """
+    grounding = grounded_question("", db_path).rsplit(QUESTION_PREFIX.rstrip(" "), 1)[0]
+    return f"{ANALYST_SYSTEM_PROMPT}\n\n{grounding}"
+
+
 def build_records_backend(db_path):
     """The split architecture's backend: a BackendLLMWorker holding the four
     retrieval tools and the analyst prompt (+ per-session date grounding).
@@ -274,11 +305,7 @@ def build_records_backend(db_path):
     from pipecat.workers.llm.backend_llm_worker import BackendLLMWorker
 
     embedder = ingest.OllamaEmbedder(config.ollama_api_url(), config.embed_model())
-    # grounded_question keeps grounding out of the system prompt for the native
-    # API's KV cache; here the backend context is built once per session, so
-    # folding grounding into the system message is equally cache-stable.
-    grounding = grounded_question("", db_path).rsplit(QUESTION_PREFIX.rstrip(" "), 1)[0]
-    backend_system = f"{ANALYST_SYSTEM_PROMPT}\n\n{grounding}"
+    backend_system = analyst_system_prompt(db_path)
 
     async def _strip_think_output(output):
         text = strip_markdown(strip_think(output.text))
@@ -452,9 +479,17 @@ def build_pipeline(transport: BaseTransport, mode: str = OFFLINE_MODE) -> BuiltB
     db_path = config.rag_db_path()
     splitting = config.architecture() == "llmwithbackend" and _index_ready(db_path)
     if splitting:
-        # Load the analyst's weights now, in the background, so the first
-        # delegation doesn't pay the cold load while the user waits.
-        services.warm_analyst()
+        # Load the analyst's weights AND prefill its system messages now, in
+        # the background, so the first delegation pays neither the cold load
+        # nor the system-prompt prefill (measured 2026-10-22: 25s TTFB).
+        # Message order mirrors the live request: pairing instruction first
+        # (service system instruction), then the context's system message.
+        services.warm_analyst(
+            system_messages=[
+                {"role": "system", "content": LOFI_BACKEND_PAIRING_INSTRUCTION},
+                {"role": "system", "content": analyst_system_prompt(db_path)},
+            ]
+        )
         # The framework appends its own delegation guidance to this.
         prompt = SPLIT_FRONT_PROMPT
     else:
