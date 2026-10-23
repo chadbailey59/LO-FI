@@ -10,7 +10,8 @@
 #                                         # bring up Ollama if needed, then the bot (default: browser)
 #                                         # --online-only: cloud-only sessions, no Ollama, no local models
 #                                         # --offline-only: local sessions only; an online connect is refused
-#                                         # --cascade|--llmwithbackend: pick the bot architecture
+#                                         # --cascade: simple STT, LLM, TTS bot architecture
+#                                         # --llmwithbackend: front LLM/analyst LLM bot architecture
 #   ./lofi.sh stop                        # stop only what lofi started (recorded PIDs)
 #   ./lofi.sh status [-v]                 # machine, ownership, bot, models (configured + downloaded), rag; -v adds full catalogs
 #   ./lofi.sh index-rag                   # build/rebuild both document indexes
@@ -334,8 +335,8 @@ cmd_help() {
       echo "                    no local model preflights; an offline connect is refused"
       echo "  --offline-only    serve offline sessions only (LOFI_OFFLINE_ONLY=1): local stack"
       echo "                    as usual; an online connect is refused"
-      echo "  --cascade         one model holds the retrieval tools (LOFI_ARCHITECTURE=cascade)"
-      echo "  --llmwithbackend  front model + analyst backend, the default"
+      echo "  --cascade         STT, LLM, TTS (LOFI_ARCHITECTURE=cascade)"
+      echo "  --llmwithbackend  front model + analyst backend, default"
       echo "                    (LOFI_ARCHITECTURE=llmwithbackend)"
       echo "  flags win over .lofirc; both vars set means offline-only wins"
       echo "  brings up Ollama first if nothing answers on \$OLLAMA_HOST (and records its pid)" ;;
