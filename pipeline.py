@@ -49,6 +49,7 @@ import services
 from services import (
     build_backend_llm,
     build_llm,
+    build_online_backend_llm,
     build_online_llm,
     build_online_stt,
     build_online_tts,
@@ -65,6 +66,8 @@ from tunables import (
     LOFI_FILLER_PHRASE,
     QUESTION_PREFIX,
     SPLIT_FRONT_PROMPT,
+    online_analyst_prompt,
+    online_front_prompt,
     online_system_prompt,
     system_prompt,
 )
@@ -360,18 +363,57 @@ class BackendToolPanel(FrameProcessor):
         await self.push_frame(frame, direction)
 
 
-def build_online_pipeline(transport: BaseTransport) -> BuiltBot:
-    """Online session: Deepgram STT -> OpenAI LLM over the public index ->
-    Cartesia TTS. Nothing here opens the private db or reaches Ollama."""
-    public_tools = build_public_tools()
-    prompt = online_system_prompt(language=config.practice_language())
-    context = (
-        LLMContext(messages=[{"role": "system", "content": prompt}], tools=public_tools)
-        if public_tools
-        else LLMContext(messages=[{"role": "system", "content": prompt}])
+def build_online_backend():
+    """The online split's backend: a BackendLLMWorker holding semantic_search
+    over the public index and the documents-analyst prompt. Stock pairing
+    instruction — the frontier backend needs no small-model tuning."""
+    from pipecat.workers.llm.backend_llm_worker import BackendLLMWorker
+
+    embedder = ingest.OpenAIEmbedder(
+        config.online_embed_model(), services.online_key("OPENAI_API_KEY")
     )
+    return BackendLLMWorker(
+        llm=build_online_backend_llm(),
+        context=LLMContext(
+            messages=[{"role": "system", "content": online_analyst_prompt()}],
+            tools=tools.build_backend_tools(
+                config.public_rag_db_path(), embedder, names=tools.PUBLIC_TOOL_NAMES
+            ),
+        ),
+    )
+
+
+def build_online_pipeline(transport: BaseTransport) -> BuiltBot:
+    """Online session: Deepgram STT -> OpenAI front (-> OpenAI documents
+    analyst on the llmwithbackend split) -> Cartesia TTS. Nothing here opens
+    the private db or reaches Ollama."""
+    public_tools = build_public_tools()
+    splitting = config.online_architecture() == "llmwithbackend" and public_tools is not None
+    if splitting:
+        # Stock connector and pairing instructions: the point of the online
+        # split is the untuned frontier path. The delegate tool is pipecat's.
+        context = LLMContext(
+            messages=[{"role": "system", "content": online_front_prompt()}]
+        )
+    else:
+        prompt = online_system_prompt(language=config.practice_language())
+        context = (
+            LLMContext(messages=[{"role": "system", "content": prompt}], tools=public_tools)
+            if public_tools
+            else LLMContext(messages=[{"role": "system", "content": prompt}])
+        )
     user_aggregator, assistant_aggregator = LLMContextAggregatorPair(context)
-    llm = build_online_llm()
+    front = build_online_llm()
+    if splitting:
+        from pipecat.pipeline.llm_with_backend import BackendConnector, LLMWithBackend
+
+        llm = LLMWithBackend(
+            frontend=front,
+            backend=build_online_backend(),
+            connector=BackendConnector(),
+        )
+    else:
+        llm = front
     tts = build_online_tts()
     pipeline = Pipeline(
         [
@@ -380,6 +422,7 @@ def build_online_pipeline(transport: BaseTransport) -> BuiltBot:
             build_online_stt(),
             user_aggregator,
             llm,
+            *([BackendToolPanel()] if splitting else []),
             SilenceWatchdog(),
             tts,
             transport.output(),

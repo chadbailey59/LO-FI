@@ -49,6 +49,9 @@ def public_db(tmp_path, monkeypatch):
 
 @pytest.fixture
 def stub_online_services(monkeypatch):
+    # Generic online-shape tests run on cascade: the split needs real LLM
+    # services (LLMWithBackend wraps them) and has its own dedicated tests.
+    monkeypatch.setenv("LOFI_ONLINE_ARCHITECTURE", "cascade")
     for name in ("build_online_stt", "build_online_llm", "build_online_tts"):
         monkeypatch.setattr(pipeline, name, lambda *a, **kw: FrameProcessor())
     monkeypatch.setattr(pipeline, "build_vad_processor", lambda *a, **kw: FrameProcessor())
@@ -119,19 +122,13 @@ def test_online_prompt_is_the_online_story(
 ):
     built = pipeline.build_pipeline(fake_transport(), mode="online")
     prompt = built.context.messages[0]["content"]
-    assert prompt.startswith(
-        "You are a private financial thinking partner. This session is running in online mode"
-    )
+    assert prompt.startswith(tunables.LOFI_ONLINE_CASCADE_PROMPT)
     assert "You run entirely offline" not in prompt
     assert "{language_line}" not in prompt
 
 
-def test_online_prompt_invites_two_way_practice_when_language_set(monkeypatch):
-    monkeypatch.setenv("LOFI_PRACTICE_LANGUAGE", "Spanish")
-    with_language = tunables.online_system_prompt(language=config.practice_language())
-    assert "Spanish" in with_language
-    assert "{language}" not in with_language
-    assert "Spanish" not in tunables.online_system_prompt()
+def test_online_cascade_prompt_offers_spanish_practice():
+    assert "Spanish" in tunables.online_system_prompt()
 
 
 def test_mode_default_and_garbage_offline(tmp_path, monkeypatch, stub_offline_services):
@@ -141,9 +138,7 @@ def test_mode_default_and_garbage_offline(tmp_path, monkeypatch, stub_offline_se
         pipeline.build_pipeline(fake_transport(), mode="garbage"),
     ):
         prompt = built.context.messages[0]["content"]
-        assert prompt.startswith(
-            "You are a private financial thinking partner. You run entirely offline"
-        )
+        assert prompt.startswith(tunables.LOFI_OFFLINE_CASCADE_PROMPT)
 
 
 def test_online_missing_public_db_degrades(
@@ -162,3 +157,76 @@ def test_public_rag_summary_reports_the_public_index(public_db):
     summary = pipeline.public_rag_summary()
     assert summary.startswith("index: ")
     assert str(public_db.parent) in summary or "public" in summary
+
+
+# --- online llmwithbackend split (LOFI_ONLINE_ARCHITECTURE, default) ----------
+
+
+@pytest.fixture
+def stub_online_av(monkeypatch):
+    """Stub only STT/TTS/VAD: the split wraps real (offline-constructed) LLM services."""
+    for name in ("build_online_stt", "build_online_tts"):
+        monkeypatch.setattr(pipeline, name, lambda *a, **kw: FrameProcessor())
+    monkeypatch.setattr(pipeline, "build_vad_processor", lambda *a, **kw: FrameProcessor())
+
+
+def test_online_split_is_the_default_and_builds_llm_with_backend(
+    public_db, fake_keys, stub_online_av, no_private_db, no_ollama, monkeypatch
+):
+    from pipecat.pipeline.llm_with_backend import LLMWithBackend
+
+    monkeypatch.delenv("LOFI_ONLINE_ARCHITECTURE", raising=False)
+    built = pipeline.build_pipeline(fake_transport(), mode="online")
+
+    # The front holds no context tools — delegate is pipecat's stock builtin.
+    assert tool_names(built.context) == []
+    assert built.context.messages[0]["content"].startswith(
+        "You are a private financial thinking partner. This session is running in online mode"
+    )
+
+    lwb = next(p for p in built.pipeline._processors if isinstance(p, LLMWithBackend))
+    worker = lwb.backend
+    assert tool_names(worker.context) == ["semantic_search"]
+    backend_system = worker.context.messages[0]["content"]
+    assert backend_system.startswith(tunables.LOFI_ONLINE_ANALYST_PROMPT)
+    assert "Today's date is" in backend_system
+
+
+def test_online_split_backend_uses_its_own_model(
+    public_db, fake_keys, stub_online_av, no_private_db, no_ollama, monkeypatch
+):
+    from pipecat.pipeline.llm_with_backend import LLMWithBackend
+
+    monkeypatch.setenv("LOFI_ONLINE_RAG_LLM_MODEL", "gpt-4.1")
+    built = pipeline.build_pipeline(fake_transport(), mode="online")
+    lwb = next(p for p in built.pipeline._processors if isinstance(p, LLMWithBackend))
+    assert lwb.backend.llm._settings.model == "gpt-4.1"
+
+
+def test_online_split_without_public_index_falls_back_to_cascade(
+    tmp_path, fake_keys, stub_online_services, no_private_db, monkeypatch
+):
+    from pipecat.pipeline.llm_with_backend import LLMWithBackend
+
+    monkeypatch.setenv("LOFI_ONLINE_ARCHITECTURE", "llmwithbackend")
+    monkeypatch.setenv("LOFI_PUBLIC_RAG_DB", str(tmp_path / "missing" / "lofi-public.db"))
+    monkeypatch.setenv("LOFI_PUBLIC_RAG_DATA_DIR", str(tmp_path / "public"))
+    built = pipeline.build_pipeline(fake_transport(), mode="online")
+    assert not any(isinstance(p, LLMWithBackend) for p in built.pipeline._processors)
+
+
+def test_online_architecture_knob(monkeypatch):
+    monkeypatch.delenv("LOFI_ONLINE_ARCHITECTURE", raising=False)
+    assert config.online_architecture() == "llmwithbackend"
+    monkeypatch.setenv("LOFI_ONLINE_ARCHITECTURE", "cascade")
+    assert config.online_architecture() == "cascade"
+    monkeypatch.setenv("LOFI_ONLINE_ARCHITECTURE", "sandwich")
+    with pytest.raises(SystemExit):
+        config.online_architecture()
+
+
+def test_online_rag_llm_model_default_and_override(monkeypatch):
+    monkeypatch.delenv("LOFI_ONLINE_RAG_LLM_MODEL", raising=False)
+    assert config.online_rag_llm_model() == "gpt-4o-mini"
+    monkeypatch.setenv("LOFI_ONLINE_RAG_LLM_MODEL", "gpt-4.1")
+    assert config.online_rag_llm_model() == "gpt-4.1"

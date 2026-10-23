@@ -164,10 +164,13 @@ def _result_count(payload: dict) -> int:
     return payload.get("count", 0)
 
 
-def build_backend_tools(db_path, embedder) -> list[FunctionSchema]:
-    """The four schemas with plain handlers for a BackendLLMWorker: result in,
+def build_backend_tools(db_path, embedder, names=None) -> list[FunctionSchema]:
+    """Schemas with plain handlers for a BackendLLMWorker: result in,
     result out — no RTVI side-channel (the worker already streams each call as
-    a BackendToolCall event; the UI panel re-plumbs from those)."""
+    a BackendToolCall event; the UI panel re-plumbs from those).
+
+    ``names``: tool subset to build; all four by default.
+    """
 
     funcs = {
         "lookup": retrieval.lookup,
@@ -195,12 +198,12 @@ def build_backend_tools(db_path, embedder) -> list[FunctionSchema]:
     return [
         FunctionSchema(
             name=name,
-            description=spec["description"],
-            properties=spec["properties"],
-            required=spec["required"],
+            description=PARAMS[name]["description"],
+            properties=PARAMS[name]["properties"],
+            required=PARAMS[name]["required"],
             handler=make_handler(name, funcs[name]),
         )
-        for name, spec in PARAMS.items()
+        for name in (names or tuple(PARAMS))
     ]
 
 

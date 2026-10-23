@@ -158,6 +158,16 @@ def build_online_llm(temperature: float | None = None):
     return OpenAILLMService(api_key=online_key("OPENAI_API_KEY"), settings=settings)
 
 
+def build_online_backend_llm():
+    """OpenAI LLM for the online documents analyst (LOFI_ONLINE_RAG_LLM_MODEL)."""
+    from pipecat.services.openai.llm import OpenAILLMService
+
+    return OpenAILLMService(
+        api_key=online_key("OPENAI_API_KEY"),
+        settings=OpenAILLMService.Settings(model=config.online_rag_llm_model()),
+    )
+
+
 def build_online_tts():
     """Cartesia TTS for online sessions."""
     from pipecat.services.cartesia.tts import CartesiaTTSService

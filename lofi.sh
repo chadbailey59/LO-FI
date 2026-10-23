@@ -160,8 +160,10 @@ cmd_start() {
   # offline-wins conflict rule can't flip a flag's choice.
   (( online_flag ))  && export LOFI_ONLINE_ONLY=1 LOFI_OFFLINE_ONLY=0
   (( offline_flag )) && export LOFI_OFFLINE_ONLY=1 LOFI_ONLINE_ONLY=0
-  (( cascade_flag )) && export LOFI_ARCHITECTURE=cascade
-  (( llmwb_flag ))   && export LOFI_ARCHITECTURE=llmwithbackend
+  # Arch flags steer both session kinds: LOFI_ARCHITECTURE (offline) and
+  # LOFI_ONLINE_ARCHITECTURE (online) each default to llmwithbackend.
+  (( cascade_flag )) && export LOFI_ARCHITECTURE=cascade LOFI_ONLINE_ARCHITECTURE=cascade
+  (( llmwb_flag ))   && export LOFI_ARCHITECTURE=llmwithbackend LOFI_ONLINE_ARCHITECTURE=llmwithbackend
 
   local mode
   mode="$(serve_mode)"
@@ -335,9 +337,9 @@ cmd_help() {
       echo "                    no local model preflights; an offline connect is refused"
       echo "  --offline-only    serve offline sessions only (LOFI_OFFLINE_ONLY=1): local stack"
       echo "                    as usual; an online connect is refused"
-      echo "  --cascade         STT, LLM, TTS (LOFI_ARCHITECTURE=cascade)"
+      echo "  --cascade         STT, LLM, TTS (LOFI_ARCHITECTURE / LOFI_ONLINE_ARCHITECTURE=cascade)"
       echo "  --llmwithbackend  front model + analyst backend, default"
-      echo "                    (LOFI_ARCHITECTURE=llmwithbackend)"
+      echo "                    (LOFI_ARCHITECTURE / LOFI_ONLINE_ARCHITECTURE=llmwithbackend)"
       echo "  flags win over .lofirc; both vars set means offline-only wins"
       echo "  brings up Ollama first if nothing answers on \$OLLAMA_HOST (and records its pid)" ;;
     stop)

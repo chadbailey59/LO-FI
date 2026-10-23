@@ -10,13 +10,10 @@ ONLINE_IDENTITY = (
 )
 
 
-def test_offline_prompts_open_with_the_offline_identity():
-    for prompt in (
-        tunables.LOFI_OFFLINE_CASCADE_PROMPT,
-        tunables.SPLIT_FRONT_PROMPT,
-    ):
-        assert prompt.startswith(OFFLINE_IDENTITY)
+def test_split_front_prompt_opens_with_the_offline_identity():
+    assert tunables.SPLIT_FRONT_PROMPT.startswith(OFFLINE_IDENTITY)
 
 
-def test_online_prompt_opens_with_the_online_identity():
-    assert tunables.LOFI_ONLINE_CASCADE_PROMPT.startswith(ONLINE_IDENTITY)
+def test_online_split_prompts_open_with_their_identities():
+    assert tunables.LOFI_ONLINE_FRONT_PROMPT.startswith(ONLINE_IDENTITY)
+    assert tunables.LOFI_ONLINE_ANALYST_PROMPT.startswith("You are a documents analyst")

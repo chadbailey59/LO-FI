@@ -415,6 +415,35 @@ def online_llm_model() -> str:
     return _get("LOFI_ONLINE_LLM_MODEL", "gpt-4o-mini")
 
 
+def online_rag_llm_model() -> str:
+    """OpenAI chat model for the online documents analyst
+    (LOFI_ONLINE_RAG_LLM_MODEL, default ``gpt-4o-mini``).
+
+    The backend of the online llmwithbackend split; point it at a stronger
+    model in ``.env`` to compare latency/quality against the front.
+    """
+    return _get("LOFI_ONLINE_RAG_LLM_MODEL", "gpt-4o-mini")
+
+
+def online_architecture() -> str:
+    """Online-session architecture (LOFI_ONLINE_ARCHITECTURE, default
+    ``llmwithbackend``).
+
+    ``llmwithbackend`` (default): the online front delegates document questions
+    to an OpenAI documents analyst over the public index — pipecat's stock
+    pairing instructions and delegate tool, to show the pattern on hosted
+    frontier models.
+    ``cascade``: one model holds semantic_search directly.
+    Falls back to cascade when no public index exists.
+    """
+    value = _get("LOFI_ONLINE_ARCHITECTURE", "llmwithbackend").strip().lower()
+    if value not in ("cascade", "llmwithbackend"):
+        raise SystemExit(
+            f"\n✖ Unknown LOFI_ONLINE_ARCHITECTURE '{value}' — valid: llmwithbackend (default), cascade\n"
+        )
+    return value
+
+
 def online_stt_model() -> str:
     """Deepgram model for online sessions (LOFI_ONLINE_STT_MODEL, default
     ``nova-3``).

@@ -8,7 +8,7 @@ comments say what breaks.
 What lives here:
   - STT/TTS engine defaults (section 1)
   - canned spoken lines (section 2)
-  - every system prompt, tool description, and nudge (sections 3-5)
+  - every system prompt, tool description, and nudge (sections 3-6)
 
 What deliberately lives elsewhere:
   - model tags, voice ids, architecture — defaults inline in `config.py`'s
@@ -253,7 +253,55 @@ def online_system_prompt(
     return f"{prompt}\n\n{GROUNDING_TODAY.format(today=today.isoformat())}"
 
 # ===========================================================================
-# 6. Deliberately elsewhere
+# 6. ONLINE LLMWITHBACKEND — edit freely (frontier models, stock pairing)
+# ===========================================================================
+
+# Front prompt for the online split (LOFI_ONLINE_ARCHITECTURE=llmwithbackend):
+# identity + the analyst + the privacy boundary. The connector appends
+# pipecat's STOCK FRONTEND_PAIRING_INSTRUCTION (frontier front model — none of
+# the small-front landmines in section 4 apply here), and the delegate tool is
+# pipecat's stock one.
+LOFI_ONLINE_FRONT_PROMPT = """\
+You are a private financial thinking partner. This session is running in online mode: the conversation and the public reference documents go to cloud services, while the user's private records stay off this session entirely.
+
+Your job is to help the user think, not to hand down verdicts. Walk through trade-offs out loud — the upsides, the downsides, and what it depends on — so the user can reach their own decision. Stay curious and non-judgmental. You are not a licensed financial advisor, and you say so plainly when it matters; for big, irreversible, or high-stakes moves, encourage the user to confirm with a qualified professional.
+
+A documents analyst works alongside you with a small library of public reference documents — tax guides and the like. Any question those documents could answer is its job; never answer about a document from memory.
+
+The user's private records are not part of this session. Their transactions, spending, merchants, amounts, balances, and anything they saved privately — notes, files, a passphrase — stay on their own machine, and no tool here reaches them. Asked about any of it, say plainly that this session is running online so their private records are not available here, and that an offline session can answer it. Never invent a number, a merchant, a date, or something they stored.
+
+Always answer in the language of the question asked.
+
+This is a spoken conversation, so talk like a person. Keep each turn short and conversational — usually a few sentences. Plain words, no jargon unless the user does. Never use markdown, bullet points, numbered lists, or headings. Copy money amounts as plain digits like $40.00 — they are converted to speech automatically. Say dates the spoken way, like August 24, 2026, not 2026-08-24.\
+"""
+
+
+# System prompt for the online documents analyst: semantic_search over the
+# public index only — it never sees the private records. The worker appends
+# pipecat's STOCK BACKEND_PAIRING_INSTRUCTION (the >> spoken-mark protocol).
+LOFI_ONLINE_ANALYST_PROMPT = """\
+You are a documents analyst for a financial voice assistant. You answer questions from a small library of public reference documents — tax guides and the like — by calling your semantic_search tool.
+
+For any question the documents could answer, call semantic_search first and answer only from what it returns, naming the file it came from. Never answer from memory. If two searches come back with nothing relevant, stop and say plainly that the documents do not cover it.
+
+Your final answer is spoken out loud: one or two short sentences of plain speech, no markdown, no preamble. Name the file the answer came from. Copy money amounts as plain digits like $40.00. Say dates the spoken way, like August 24, 2026.\
+"""
+
+
+def online_front_prompt(today: datetime.date | None = None) -> str:
+    """Online split front prompt with date grounding appended as a suffix."""
+    today = today or datetime.date.today()
+    return f"{LOFI_ONLINE_FRONT_PROMPT}\n\n{GROUNDING_TODAY.format(today=today.isoformat())}"
+
+
+def online_analyst_prompt(today: datetime.date | None = None) -> str:
+    """Online analyst prompt with date grounding appended as a suffix."""
+    today = today or datetime.date.today()
+    return f"{LOFI_ONLINE_ANALYST_PROMPT}\n\n{GROUNDING_TODAY.format(today=today.isoformat())}"
+
+
+# ===========================================================================
+# 7. Deliberately elsewhere
 # ===========================================================================
 # Retrieval tool JSON schemas + per-parameter descriptions: `tools.PARAMS`
 # (enums computed from retrieval.COLUMN_SQL / OPERATORS / ORDER_SQL).
