@@ -246,13 +246,14 @@ def build_records_connector():
 
     return RecordsBackendConnector(
         frontend_pairing_instruction=LOFI_FRONTEND_PAIRING_INSTRUCTION,
-        # Post-delegate re-run narrates the handoff ("Let me check that for
-        # you..."); those narrations accumulate in context as complete-looking
-        # answers to records questions, and after two rounds the temp-0 7B
-        # imitates them without the tool call (measured 2026-10-20,
-        # evals --stage followup: live misses 3/3 with narrations, 1/3 without;
-        # the arguably-conversational "Are you still there?" turn is the 1).
-        # Off: the canned filler in build_pipeline speaks instead.
+        # Post-delegate re-run narrates the handoff — or worse: the temp-0 7B
+        # sometimes ANSWERS on that run (measured 2026-10-22 live: spoke an
+        # invented passphrase "sunflower42" before the analyst even started),
+        # and narrations accumulate in context as complete-looking answers the
+        # front then imitates without the tool call (measured 2026-10-20,
+        # evals --stage followup: live misses 3/3 with narrations, 1/3
+        # without). Off: the canned filler in build_pipeline speaks instead.
+        # The online split keeps the spoken ack — its frontier front is safe.
         respond_on_delegate=False,
     )
 

@@ -405,10 +405,9 @@ def test_split_speaks_canned_filler_out_of_context(db, monkeypatch):
 
 
 def test_split_connector_does_not_rerun_front_on_delegate():
-    # The front's own handoff narration ("Let me check that for you...") comes
-    # from the post-delegate re-run and poisons the context the same way the
-    # canned filler would (measured 2026-10-20: live misses 3/3 after two
-    # rounds). Off: the canned filler speaks instead.
+    # The post-delegate re-run narrates — or ANSWERS: the temp-0 7B spoke an
+    # invented passphrase on that run (measured live 2026-10-22). Off: the
+    # canned filler speaks instead; the online split keeps the spoken ack.
     connector = pipeline.build_records_connector()
     assert connector._respond_on_delegate is False
 
