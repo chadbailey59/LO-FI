@@ -31,24 +31,16 @@ That version is an ideal language learning partner. Read on to learn more.
 
 ```bash
 git clone git@github.com:vipyne/LO-FI.git && cd LO-FI
-uv sync
-bash scripts/run_ollama.sh
-uv run python scripts/prefetch_models.py
-```
-
-While `run_ollama.sh` is still serving, in a second terminal:
-
-```bash
+mkdir -p data/private
 echo "The secret passphrase for the tax vault is BLUE PELICAN 47." > data/private/test-passphrase.txt
-./lofi.sh index-rag
-```
-
-Back in the first terminal: Ctrl+C; then turn off wi-fi if you want to show
-off and then:
-
-```bash
 ./lofi.sh start
 ```
+
+The first `./lofi.sh start` sets up whatever is missing: it copies `.lofirc`
+and `.env` from their examples, runs `uv sync`, brings up Ollama, fetches the
+models, and builds the document index. Later starts skip straight to the bot,
+so turn off wi-fi if you want to show off. To see what's still missing
+without setting anything up, run `./lofi.sh start --check`.
 
 Open http://localhost:7860 in any browser, click Connect & ask *"what's the
 passphrase for the tax vault?"*. Neat, huh? Add more useful documents and

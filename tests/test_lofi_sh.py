@@ -423,3 +423,65 @@ def test_env_file_inline_comments_stripped(tmp_path):
     assert result.returncode == 0
     assert re.search(r"^\s+ANALYST\s+qwen3\.8:27b \(", result.stdout, re.M), result.stdout
     assert "# records analyst backend" not in result.stdout
+
+
+def test_start_check_reports_missing_models_and_launches_nothing(tmp_path):
+    port = closed_port()
+    # The Python side reads LOFI_OLLAMA_BASE_URL, not OLLAMA_HOST.
+    env = {**isolated_store_env(tmp_path), "LOFI_OLLAMA_BASE_URL": f"http://127.0.0.1:{port}/v1"}
+    result = run_lofi(
+        "start",
+        tmp_path / "state",
+        f"127.0.0.1:{port}",
+        extra_args=["--check", "--offline-only", "--cascade"],
+        **env,
+    )
+    assert result.returncode == 1, result.stdout + result.stderr
+    assert "not downloaded:" in result.stdout
+    assert "ollama:qwen2.5:7b" in result.stdout
+    assert "prefetch_models.py" in result.stdout
+    assert not (tmp_path / "state" / "bot.pid").exists()
+
+
+def test_start_check_online_only_flags_missing_keys(tmp_path):
+    env = {
+        **isolated_store_env(tmp_path),
+        "OPENAI_API_KEY": "",
+        "DEEPGRAM_API_KEY": "",
+        "CARTESIA_API_KEY": "",
+    }
+    result = run_lofi(
+        "start",
+        tmp_path / "state",
+        f"127.0.0.1:{closed_port()}",
+        extra_args=["--check", "--online-only"],
+        **env,
+    )
+    assert result.returncode == 1, result.stdout + result.stderr
+    assert "OPENAI_API_KEY" in result.stdout
+    assert "not downloaded" not in result.stdout  # online-only needs no local models
+
+
+def test_start_check_online_only_ready_with_keys(tmp_path):
+    env = {
+        **isolated_store_env(tmp_path),
+        "OPENAI_API_KEY": "sk-test",
+        "DEEPGRAM_API_KEY": "dg-test",
+        "CARTESIA_API_KEY": "ca-test",
+        "LOFI_RAG_DATA_DIR": str(tmp_path / "no-docs"),
+    }
+    result = run_lofi(
+        "start",
+        tmp_path / "state",
+        f"127.0.0.1:{closed_port()}",
+        extra_args=["--check", "--online-only"],
+        **env,
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "check: ready" in result.stdout
+
+
+def test_per_command_help_start_documents_check(tmp_path):
+    result = run_lofi("start", tmp_path, f"127.0.0.1:{closed_port()}", extra_args=["help"])
+    assert result.returncode == 0
+    assert "--check" in result.stdout

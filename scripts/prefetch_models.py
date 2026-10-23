@@ -220,7 +220,11 @@ def prefetch_kokoro() -> None:
     voices_path = config.kokoro_voices_path()
     logger.info(f"Kokoro: ensuring model → {model_path} and voices → {voices_path} ...")
     # Construction triggers the download + a load of the ONNX model.
-    KokoroTTSService(model_path=model_path, voices_path=voices_path)
+    KokoroTTSService(
+        settings=KokoroTTSService.Settings(voice=config.kokoro_voice()),
+        model_path=model_path,
+        voices_path=voices_path,
+    )
     logger.success("Kokoro ready.")
 
 

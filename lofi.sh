@@ -6,8 +6,9 @@
 # (default .lofi/). An Ollama you started yourself is never touched.
 #
 # Usage:
-#   ./lofi.sh start [-t browser|headphones] [--online-only|--offline-only] [--cascade|--llmwithbackend]
-#                                         # bring up Ollama if needed, then the bot (default: browser)
+#   ./lofi.sh start [-t browser|headphones] [--online-only|--offline-only] [--cascade|--llmwithbackend] [--check]
+#                                         # set up what's missing, bring up Ollama if needed, then the bot (default: browser)
+#                                         # --check: report missing prerequisites only; set up and launch nothing
 #                                         # --online-only: cloud-only sessions, no Ollama, no local models
 #                                         # --offline-only: local sessions only; an online connect is refused
 #                                         # --cascade: simple STT, LLM, TTS bot architecture
@@ -137,8 +138,124 @@ cmd_index_rag() {
   fi
 }
 
+# First-run setup that needs no Python: config files, the venv, the client.
+# check=1 reports instead of fixing; returns 1 when something is missing.
+setup_basics() {
+  local mode="$1" transport="$2" check="$3" missing=0
+  if ! command -v uv >/dev/null 2>&1; then
+    echo "start: uv not found — install it: curl -LsSf https://astral.sh/uv/install.sh | sh" >&2
+    exit 1
+  fi
+  if [[ "$mode" != "online-only" ]] && ! command -v ollama >/dev/null 2>&1 && ! ollama_up; then
+    echo "start: ollama not found — install it from https://ollama.com (or run --online-only)" >&2
+    exit 1
+  fi
+  if [[ ! -f "$ENV_FILE" && "$ENV_FILE" == ".lofirc" ]]; then
+    if (( check )); then
+      echo "check: no .lofirc — start copies lofirc.example"; missing=1
+    else
+      cp lofirc.example .lofirc
+      echo "start: created .lofirc from lofirc.example (edit it to change models)"
+      load_env_defaults .lofirc
+    fi
+  fi
+  if [[ "$mode" != "offline-only" && ! -f .env ]]; then
+    if (( check )); then
+      # Not a blocker by itself: the key check below decides.
+      echo "check: no .env — start copies env.example"
+    else
+      cp env.example .env
+      echo "start: created .env from env.example (fill in the API keys for online sessions)"
+    fi
+  fi
+  if [[ ! -d .venv ]]; then
+    if (( check )); then
+      echo "check: no .venv — start runs uv sync"; missing=1
+    else
+      echo "start: first run — creating the Python environment (uv sync)..."
+      uv sync --inexact || { echo "start: uv sync failed — see the error above" >&2; exit 1; }
+    fi
+  fi
+  if [[ "$transport" == "browser" && ! -f client/dist/index.html ]]; then
+    if (( check )); then
+      echo "check: no client/dist — start builds the browser client"; missing=1
+    elif command -v npm >/dev/null 2>&1; then
+      echo "start: building the browser client (npm ci && npm run build)..."
+      { npm --prefix client ci && npm --prefix client run build; } \
+        || { echo "start: client build failed — see the error above" >&2; exit 1; }
+    else
+      echo "start: client/dist is missing and npm is not installed — install Node.js, then rerun" >&2
+      exit 1
+    fi
+  fi
+  return "$missing"
+}
+
+# Setup that needs the venv (and a running Ollama for offline modes):
+# engine extras, model weights, document indexes, API keys.
+setup_prereqs() {
+  local mode="$1" transport="$2" check="$3" missing=0 report kind detail
+  local extras="" prefetch="" rag=0 rag_public=0 keys=""
+  report="$(uv run python scripts/preflight.py --mode "$mode" --transport "$transport" 2>/dev/null)" \
+    || { echo "start: preflight check failed — run: uv run python scripts/preflight.py" >&2; exit 1; }
+  while read -r kind detail; do
+    case "$kind" in
+      extra)  extras="$extras --extra $detail" ;;
+      ollama|stt|tts|daily) prefetch="$prefetch $kind:${detail##*/}" ;;
+      rag)    rag=1 ;;
+      rag-public) rag_public=1 ;;
+      key)    keys="${keys:+$keys, }$detail" ;;
+    esac
+  done <<<"$report"
+
+  if (( check )); then
+    [[ -n "$extras" ]]   && { echo "check: engine support not installed — start runs: uv sync --inexact$extras"; missing=1; }
+    [[ -n "$prefetch" ]] && { echo "check: not downloaded:$prefetch — start runs scripts/prefetch_models.py"; missing=1; }
+    (( rag ))            && { echo "check: documents but no offline index — start runs index-rag"; missing=1; }
+    (( rag_public ))     && { echo "check: public documents but no public index — start builds it"; missing=1; }
+    if [[ -n "$keys" ]]; then
+      echo "check: .env is missing $keys — online sessions need them"
+      [[ "$mode" == "online-only" ]] && missing=1
+    fi
+    return "$missing"
+  fi
+
+  if [[ -n "$extras" ]]; then
+    echo "start: installing engine support (uv sync --inexact$extras)..."
+    # shellcheck disable=SC2086
+    if ! uv sync --inexact $extras; then
+      [[ "$extras" == *local-audio* ]] \
+        && echo "start: PyAudio needs PortAudio — brew install portaudio (Debian: sudo apt install portaudio19-dev)" >&2
+      echo "start: uv sync failed — see the error above" >&2; exit 1
+    fi
+  fi
+  if [[ -n "$prefetch" ]]; then
+    echo "start: not downloaded yet:$prefetch"
+    echo "start: fetching models (one-time, needs network; the first run takes a few minutes)..."
+    uv run python scripts/prefetch_models.py \
+      || { echo "start: model prefetch failed — see the error above" >&2; exit 1; }
+  fi
+  # A failed index build is not fatal: the bot starts without the tool.
+  if (( rag )); then
+    echo "start: documents found but no offline index — building it..."
+    uv run python ingest.py index || echo "start: offline index build failed — rerun ./lofi.sh index-rag" >&2
+  fi
+  if (( rag_public )); then
+    echo "start: public documents found but no public index — building it..."
+    uv run python ingest.py index --embedder openai \
+      || echo "start: public index build failed — rerun ./lofi.sh index-rag" >&2
+  fi
+  if [[ -n "$keys" ]]; then
+    if [[ "$mode" == "online-only" ]]; then
+      echo "start: online-only needs $keys in .env — add them and rerun" >&2; exit 1
+    fi
+    echo "start: .env is missing $keys — online sessions will fail until you add them"
+  fi
+  return 0
+}
+
 cmd_start() {
-  local transport="browser" online_flag=0 offline_flag=0 cascade_flag=0 llmwb_flag=0
+  local transport="browser" online_flag=0 offline_flag=0 cascade_flag=0 llmwb_flag=0 check=0
   while [[ $# -gt 0 ]]; do
     case "$1" in
       -t|--transport)   transport="${2:-}"; shift 2 || shift ;;
@@ -146,6 +263,7 @@ cmd_start() {
       --offline-only)   offline_flag=1; shift ;;
       --cascade)        cascade_flag=1; shift ;;
       --llmwithbackend) llmwb_flag=1; shift ;;
+      --check)          check=1; shift ;;
       -h|--help)        usage; exit 0 ;;
       *) echo "lofi: unknown start option '$1' (try ./lofi.sh -h)" >&2; exit 1 ;;
     esac
@@ -180,6 +298,16 @@ cmd_start() {
     echo "lofi: online-only (--online-only / LOFI_ONLINE_ONLY=1) needs the browser bot — drop '-t headphones'" >&2; exit 1
   fi
 
+  if (( check )); then
+    local ready=0
+    setup_basics "$mode" "$transport" 1 || ready=1
+    if [[ -d .venv ]]; then
+      setup_prereqs "$mode" "$transport" 1 || ready=1
+    fi
+    if (( ready == 0 )); then echo "check: ready — ./lofi.sh start has nothing to set up"; fi
+    return "$ready"
+  fi
+
   mkdir -p "$STATE_DIR"
 
   if [[ -n "$MISPLACED_SETTINGS" ]]; then
@@ -192,6 +320,8 @@ cmd_start() {
     echo "start: bot already running (pid $bot_pid) — run ./lofi.sh stop first." >&2
     exit 1
   fi
+
+  setup_basics "$mode" "$transport" 0
 
   if [[ "$mode" == "online-only" ]]; then
     echo "start: online-only — sessions run on Deepgram/OpenAI/Cartesia; Ollama stays down."
@@ -220,9 +350,12 @@ cmd_start() {
       for _ in $(seq 1 900); do model_ready && break; sleep 1; done
       model_ready || { echo "start: $(missing_models) not ready — see ollama.log" >&2; exit 1; }
     fi
-
-    model_lines
   fi
+
+  # Offline modes run this with Ollama up, so prefetch pulls into the live
+  # server and the offline index can embed.
+  setup_prereqs "$mode" "$transport" 0
+  [[ "$mode" != "online-only" ]] && model_lines
 
   mkdir -p "$STATE_DIR/logs"
   if [[ -f "$STATE_DIR/bot.log" && ! -L "$STATE_DIR/bot.log" ]]; then
@@ -336,7 +469,7 @@ cmd_get_debug_log() {
 cmd_help() {
   case "$1" in
     start)
-      echo "usage: ./lofi.sh start [-t browser|headphones] [--online-only|--offline-only] [--cascade|--llmwithbackend]"
+      echo "usage: ./lofi.sh start [-t browser|headphones] [--online-only|--offline-only] [--cascade|--llmwithbackend] [--check]"
       echo "  -t, --transport   browser (the default — serves websocket for offline"
       echo "                    sessions and SmallWebRTC for online sessions)"
       echo "                    headphones (local mic/speakers via PyAudio — wear headphones)"
@@ -347,7 +480,11 @@ cmd_help() {
       echo "  --cascade         STT, LLM, TTS (LOFI_ARCHITECTURE / LOFI_ONLINE_ARCHITECTURE=cascade)"
       echo "  --llmwithbackend  front model + analyst backend, default"
       echo "                    (LOFI_ARCHITECTURE / LOFI_ONLINE_ARCHITECTURE=llmwithbackend)"
+      echo "  --check           report missing prerequisites and exit (1 = something to set up);"
+      echo "                    sets up and launches nothing"
       echo "  flags win over .lofirc; both vars set means offline-only wins"
+      echo "  first sets up whatever is missing: .lofirc and .env from their examples, the"
+      echo "  venv (uv sync), engine extras, models (prefetch_models.py), and document indexes"
       echo "  brings up Ollama first if nothing answers on \$OLLAMA_HOST (and records its pid)" ;;
     stop)
       echo "usage: ./lofi.sh stop"
