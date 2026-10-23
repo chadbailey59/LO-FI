@@ -180,6 +180,15 @@ cmd_start() {
     echo "lofi: online-only (--online-only / LOFI_ONLINE_ONLY=1) needs the browser bot — drop '-t headphones'" >&2; exit 1
   fi
 
+  # Setup guard: .venv exists only after `uv sync`.
+  if [[ ! -d "$REPO/.venv" ]]; then
+    echo "start: no .venv — run setup first (README → Setup):" >&2
+    echo "         uv sync" >&2
+    echo "         cp lofirc.example .lofirc" >&2
+    echo "         uv run python scripts/prefetch_models.py   # one-time model download (~12 GB)" >&2
+    exit 1
+  fi
+
   mkdir -p "$STATE_DIR"
 
   if [[ -n "$MISPLACED_SETTINGS" ]]; then
@@ -191,6 +200,24 @@ cmd_start() {
   if pid_alive "$bot_pid"; then
     echo "start: bot already running (pid $bot_pid) — run ./lofi.sh stop first." >&2
     exit 1
+  fi
+
+  # Port guard: browser bot binds $LOFI_WEB_PORT; a listener there means a
+  # bot lofi didn't record (ownership rule: lofi kills only recorded pids).
+  if [[ "$transport" == "browser" ]] && command -v lsof >/dev/null 2>&1; then
+    local port_pid port_cmd
+    port_pid="$(lsof -nP -tiTCP:"$LOFI_WEB_PORT" -sTCP:LISTEN 2>/dev/null | head -n1 || true)"
+    if [[ -n "$port_pid" ]]; then
+      port_cmd="$(ps -o command= -p "$port_pid" 2>/dev/null || true)"
+      if echo "$port_cmd" | grep -q "bot_browser.py"; then
+        echo "start: port $LOFI_WEB_PORT already serves a lofi bot (pid $port_pid) lofi didn't start" >&2
+        echo "start: stop it with: kill $port_pid   (or ./lofi.sh stop in the checkout that started it)" >&2
+      else
+        echo "start: port $LOFI_WEB_PORT in use by pid $port_pid: ${port_cmd:-?}" >&2
+        echo "start: free the port, or pick another: LOFI_WEB_PORT=7861 ./lofi.sh start" >&2
+      fi
+      exit 1
+    fi
   fi
 
   if [[ "$mode" == "online-only" ]]; then
@@ -221,7 +248,14 @@ cmd_start() {
       model_ready || { echo "start: $(missing_models) not ready — see ollama.log" >&2; exit 1; }
     fi
 
-    model_lines
+    # Fail before launch when any configured model is still missing on disk.
+    local models_out
+    models_out="$(model_lines)"
+    printf '%s\n' "$models_out"
+    if grep -qF '(not downloaded yet)' <<<"$models_out"; then
+      echo "start: models above are not downloaded — fetch once: uv run python scripts/prefetch_models.py" >&2
+      exit 1
+    fi
   fi
 
   mkdir -p "$STATE_DIR/logs"
